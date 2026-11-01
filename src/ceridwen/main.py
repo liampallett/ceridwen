@@ -1,7 +1,8 @@
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ceridwen.ollama_client import chat
+from ceridwen.ollama_client import chat, stream_chat
 
 app = FastAPI()
 
@@ -20,3 +21,11 @@ async def health():
 def chat_endpoint(request: ChatRequest):
     r = chat(request.model, request.message)
     return {"response": r}
+
+
+@app.post("/chat/stream")
+def streaming_endpoint(request: ChatRequest):
+    return StreamingResponse(
+        stream_chat(request.model, request.message),
+        media_type="text/plain"
+    )

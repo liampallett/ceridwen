@@ -33,3 +33,24 @@ def test_chat_endpoint():
             "gemma4:12b-mlx",
             "Hello"
         )
+
+
+def test_streaming_endpoint():
+    with patch("ceridwen.main.stream_chat") as mock_stream:
+        mock_stream.return_value = ["Hello", " ", "world!"]
+
+        r = client.post(
+            "/chat/stream",
+            json={
+                "model": "gemma4:12b-mlx",
+                "message": "Hello"
+            }
+        )
+
+        assert r.status_code == 200
+        assert r.text == "Hello world!"
+
+        mock_stream.assert_called_once_with(
+            "gemma4:12b-mlx",
+            "Hello"
+        )
