@@ -92,7 +92,7 @@ Every line of the response is one JSON event:
 
 ```bash
 git clone https://github.com/liampallett/ceridwen
-cd ceridwen-v2
+cd ceridwen
 uv sync
 ollama pull gemma4:12b-mlx   # or any tool-capable model
 ```
