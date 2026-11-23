@@ -8,12 +8,14 @@ from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ceridwen import db
 from ceridwen.agent import run_agent
+from ceridwen.ollama_client import list_models
 
 DB_PATH = Path(__file__).parent / "database" / "ceridwen.db"
 
@@ -34,6 +36,10 @@ class ChatRequest(BaseModel):
     model: str
     message: str
     thread_id: str
+
+
+class ThreadPatch(BaseModel):
+    title: str
 
 
 @app.post("/chat")
@@ -77,9 +83,23 @@ def _stream_turn(
     Yields:
         One JSON-encoded event per line.
     """
-    for event in run_agent(model, messages):
-        yield f"{json.dumps(event)}\n"
+    try:
+        for event in run_agent(model, messages):
+            yield f"{json.dumps(event)}\n"
+    except httpx.HTTPError as e:
+        yield f"{json.dumps({'type': 'error', 'data': str(e)})}\n"
+        return
     db.add_messages(DB_PATH, thread_id, messages[start:])
+
+
+@app.get("/models")
+def get_models():
+    try:
+        return list_models()
+    except httpx.HTTPError:
+        raise HTTPException(
+            status_code=503, detail="ollama service unavailable"
+        ) from None
 
 
 @app.post("/threads")
@@ -109,3 +129,10 @@ def delete_thread(thread_id: str):
     if not db.thread_exists(DB_PATH, thread_id):
         raise HTTPException(status_code=404, detail="Thread not found")
     db.delete_thread(DB_PATH, thread_id)
+
+
+@app.patch("/threads/{thread_id}")
+def rename_thread(thread_id: str, thread_patch: ThreadPatch):
+    if not db.thread_exists(DB_PATH, thread_id):
+        raise HTTPException(status_code=404, detail="Thread not found")
+    db.rename_thread(DB_PATH, thread_id, thread_patch.title)

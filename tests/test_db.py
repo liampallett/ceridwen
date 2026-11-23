@@ -183,3 +183,12 @@ def test_missing_content_comes_back_as_empty_string(path):
     )
 
     assert db.get_messages(path, thread)[0]["content"] == ""
+
+
+def test_rename_thread_changes_only_that_title(path):
+    a, b = db.create_thread(path), db.create_thread(path)
+
+    db.rename_thread(path, a, "Maths homework")
+
+    titles = {t["id"]: t["title"] for t in db.list_threads(path)}
+    assert titles == {a: "Maths homework", b: ""}

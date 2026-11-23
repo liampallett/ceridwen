@@ -182,3 +182,14 @@ def delete_thread(path: Path, thread_id: str) -> None:
         DELETE FROM threads WHERE id = ?""",
             (thread_id,),
         )
+
+
+def rename_thread(path: Path, thread_id: str, title: str) -> None:
+    conn = _connect(path)
+    with conn:
+        conn.execute(
+            """
+        UPDATE threads SET title = ? WHERE id = ?
+        """,
+            (title, thread_id),
+        )

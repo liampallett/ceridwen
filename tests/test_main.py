@@ -192,3 +192,85 @@ def test_chatting_moves_thread_to_top_of_list(client, agent):
     chat(client, old, "Bump")
 
     assert [t["id"] for t in client.get("/threads").json()] == [old, new]
+
+
+# --- Ollama errors mid-stream ---
+
+
+def test_ollama_failure_mid_stream_sends_error_event(client, monkeypatch):
+    import httpx
+
+    def broken_agent(model, messages):
+        yield {"type": "thinking", "data": "Hmm"}
+        raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr(main, "run_agent", broken_agent)
+
+    r = chat(client, new_thread(client), "Hello")
+
+    events = [json.loads(line) for line in r.text.splitlines()]
+    assert events[0] == {"type": "thinking", "data": "Hmm"}
+    assert events[-1]["type"] == "error"
+    assert "Connection refused" in events[-1]["data"]
+    assert r.text.endswith("\n")
+
+
+def test_failed_turn_is_not_saved(client, monkeypatch):
+    import httpx
+
+    def broken_agent(model, messages):
+        raise httpx.ConnectError("Connection refused")
+        yield  # makes this a generator, like the real run_agent
+
+    monkeypatch.setattr(main, "run_agent", broken_agent)
+    thread_id = new_thread(client)
+
+    chat(client, thread_id, "Hello")
+
+    assert client.get(f"/threads/{thread_id}/messages").json() == []
+
+
+# --- models ---
+
+
+def test_models_lists_what_ollama_has(client, monkeypatch):
+    monkeypatch.setattr(main, "list_models", lambda: ["gemma4:12b-mlx", "qwen3:8b"])
+
+    r = client.get("/models")
+
+    assert r.status_code == 200
+    assert r.json() == ["gemma4:12b-mlx", "qwen3:8b"]
+
+
+def test_models_is_503_when_ollama_is_down(client, monkeypatch):
+    import httpx
+
+    def down():
+        raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr(main, "list_models", down)
+
+    assert client.get("/models").status_code == 503
+
+
+# --- renaming ---
+
+
+def test_rename_thread(client):
+    thread_id = new_thread(client)
+
+    r = client.patch(f"/threads/{thread_id}", json={"title": "Maths homework"})
+
+    assert r.status_code == 200
+    [thread] = client.get("/threads").json()
+    assert thread["title"] == "Maths homework"
+
+
+def test_rename_unknown_thread_is_404(client):
+    r = client.patch("/threads/nonsense", json={"title": "Nope"})
+    assert r.status_code == 404
+
+
+def test_rename_requires_title(client):
+    r = client.patch(f"/threads/{new_thread(client)}", json={})
+    assert r.status_code == 422

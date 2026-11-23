@@ -229,3 +229,31 @@ def test_realistic_tool_call_turn():
     )
 
     assert [e["type"] for e in events] == ["thinking", "thinking", "tool_call", "done"]
+
+
+# --- list_models ---
+
+
+def test_list_models_returns_names_only():
+    from ceridwen.ollama_client import list_models
+
+    with patch("ceridwen.ollama_client.httpx.get") as mock_get:
+        mock_get.return_value.json.return_value = {
+            "models": [
+                {"name": "gemma4:12b-mlx", "size": 7400000000, "details": {}},
+                {"name": "qwen3:8b", "size": 5200000000, "details": {}},
+            ]
+        }
+
+        assert list_models() == ["gemma4:12b-mlx", "qwen3:8b"]
+        assert mock_get.call_args.args[0] == "http://127.0.0.1:11434/api/tags"
+
+
+def test_list_models_raises_when_ollama_is_down():
+    from ceridwen.ollama_client import list_models
+
+    with patch("ceridwen.ollama_client.httpx.get") as mock_get:
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
+
+        with pytest.raises(httpx.ConnectError):
+            list_models()

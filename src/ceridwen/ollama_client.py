@@ -11,6 +11,15 @@ import httpx
 from ceridwen.tools import build_tools
 
 
+def list_models() -> list[str]:
+    url = "http://127.0.0.1:11434/api/tags"
+    response = httpx.get(url, timeout=5)
+    response.raise_for_status()
+    data = response.json()
+
+    return [model["name"] for model in data["models"]]
+
+
 def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:
     """Send a conversation to Ollama and yield its response as events.
 
