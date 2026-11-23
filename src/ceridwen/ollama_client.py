@@ -12,6 +12,11 @@ from ceridwen.tools import build_tools
 
 
 def list_models() -> list[str]:
+    """Return the names of the models installed in Ollama.
+
+    Raises:
+        httpx.HTTPError: Ollama couldn't be reached or returned an error.
+    """
     url = "http://127.0.0.1:11434/api/tags"
     response = httpx.get(url, timeout=5)
     response.raise_for_status()
@@ -21,21 +26,43 @@ def list_models() -> list[str]:
 
 
 def generate_title(model: str, message: str) -> str:
+    """Ask the model for a short title for a conversation.
+
+    A single non-streaming call, deliberately without tools (so the model
+    can't decide to call one) and with thinking switched off (so it doesn't
+    reason at length about four words). Quotes, full stops and whitespace
+    around the reply are stripped.
+
+    Args:
+        model: Name of the Ollama model to use.
+        message: The conversation's first user message.
+
+    Returns:
+        The title, which may be empty if the model replied with nothing usable.
+
+    Raises:
+        httpx.HTTPError: Ollama couldn't be reached or returned an error.
+    """
     url = "http://127.0.0.1:11434/api/chat"
     response = httpx.post(
         url,
         json={
             "model": model,
             "messages": [
-                {"role": "system", "content": "Reply with only a title for this conversation, 3 to 6 words, no quotes or punctuation."},
+                {
+                    "role": "system",
+                    "content": "Reply with only a title for this conversation, 3 to 6 words, no quotes or punctuation.",
+                },
                 {"role": "user", "content": message},
             ],
             "stream": False,
             "think": False,
-        }, timeout=30)
+        },
+        timeout=30,
+    )
     response.raise_for_status()
     data = response.json()
-    return data["message"]["content"].strip(' "\'.\n')
+    return data["message"]["content"].strip(" \"'.\n")
 
 
 def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:

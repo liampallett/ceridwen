@@ -185,6 +185,7 @@ def delete_thread(path: Path, thread_id: str) -> None:
 
 
 def rename_thread(path: Path, thread_id: str, title: str) -> None:
+    """Set a thread's title. Doesn't change ``updated_at``."""
     conn = _connect(path)
     with conn:
         conn.execute(

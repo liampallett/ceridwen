@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from ceridwen import db
 from ceridwen.agent import run_agent
-from ceridwen.ollama_client import list_models, generate_title
+from ceridwen.ollama_client import generate_title, list_models
 
 DB_PATH = Path(__file__).parent / "database" / "ceridwen.db"
 
@@ -39,6 +39,8 @@ class ChatRequest(BaseModel):
 
 
 class ThreadPatch(BaseModel):
+    """Body of a ``PATCH /threads/{thread_id}`` request."""
+
     title: str
 
 
@@ -72,7 +74,13 @@ def _stream_turn(
     """Stream the agent's events as NDJSON lines, then save the turn.
 
     Saving happens after the last event, so if the client disconnects
-    mid-stream, nothing from this turn is saved.
+    mid-stream, nothing from this turn is saved. If Ollama fails partway
+    through, an ``error`` event is sent instead and nothing is saved, so the
+    thread is left as it was and the message can simply be sent again.
+
+    After a thread's first turn, the model is asked for a title, which is
+    saved and sent as a final ``title`` event. Titling failures are ignored:
+    the thread just stays untitled.
 
     Args:
         model: Name of the Ollama model to use.
@@ -100,11 +108,12 @@ def _stream_turn(
 
         if title:
             db.rename_thread(DB_PATH, thread_id, title)
-            yield f"{json.dumps({"type": "title", "data": title})}"
+            yield f"{json.dumps({'type': 'title', 'data': title})}\n"
 
 
 @app.get("/models")
 def get_models():
+    """List the models installed in Ollama. 503 if Ollama can't be reached."""
     try:
         return list_models()
     except httpx.HTTPError:
@@ -144,6 +153,7 @@ def delete_thread(thread_id: str):
 
 @app.patch("/threads/{thread_id}")
 def rename_thread(thread_id: str, thread_patch: ThreadPatch):
+    """Rename a thread. 404 if it doesn't exist."""
     if not db.thread_exists(DB_PATH, thread_id):
         raise HTTPException(status_code=404, detail="Thread not found")
     db.rename_thread(DB_PATH, thread_id, thread_patch.title)
