@@ -10,7 +10,7 @@ import Foundation
 struct Message: Codable, Identifiable {
     let id = UUID()
     let role: String
-    let content: String
+    var content: String
     let toolName: String?
     
     enum CodingKeys: String, CodingKey {

@@ -96,9 +96,14 @@ struct ContentView: View {
     }
     
     func send() async {
-        guard let selectedThreadID else {
+        let decoder = JSONDecoder()
+        
+        guard let selectedThreadID, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
+        
+        messages.append(Message(role: "user", content: draft, toolName: nil))
+        messages.append(Message(role: "assistant", content: "", toolName: nil))
         
         do {
             var request = URLRequest(url: URL(string: "http://127.0.0.1:8000/chat")!)
@@ -113,7 +118,13 @@ struct ContentView: View {
             
             let (bytes, _) = try await URLSession.shared.bytes(for: request)
             for try await line in bytes.lines {
-                print(line)
+                let event = try decoder.decode(ChatEvent.self, from: Data(line.utf8))
+                switch event{
+                case .content(let text):
+                    messages[messages.count - 1].content += text
+                default:
+                    break
+                }
             }
         } catch {
             print("[ceridwen] send failed:", error)
