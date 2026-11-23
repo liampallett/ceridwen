@@ -23,7 +23,6 @@ def stream_chat(model: str, message: str) -> Iterator[dict]:
         for line in response.iter_lines():
             if not line:
                 continue
-            print(line)
             chunk = json.loads(line)
             message_payload = chunk["message"]
             thinking = message_payload.get("thinking")
