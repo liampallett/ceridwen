@@ -30,31 +30,25 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
                 case "done":
                     pass
 
-        # the model call has finished. Did it ask for any tools?
-        # no  -> return (the whole answer is done)
-        # yes -> carry on below
+        # 1. append the assistant's message (its text + tool calls) to messages
+        message: dict = {"role": "assistant", "content": content}
+
+        if tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": call["id"],
+                    "function": {
+                        "name": call["name"],
+                        "arguments": call["arguments"],
+                    },
+                }
+                for call in tool_calls
+            ]
+
+        messages.append(message)
 
         if not tool_calls:
             return
-
-        # 1. append the assistant's message (its text + tool calls) to messages
-
-        messages.append(
-            {
-                "role": "assistant",
-                "content": content,
-                "tool_calls": [
-                    {
-                        "id": call["id"],
-                        "function": {
-                            "name": call["name"],
-                            "arguments": call["arguments"],
-                        },
-                    }
-                    for call in tool_calls
-                ],
-            }
-        )
 
         # 2. for each tool call: run it, append a {"role": "tool", ...} message
 
@@ -62,7 +56,7 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
             try:
                 result = execute_tool(call["name"], call["arguments"])
                 success = True
-            except Exception as e: # noqa: BLE001 - any tool failure is reported back to the model
+            except Exception as e:  # noqa: BLE001 - any tool failure is reported back to the model
                 result = f"Error running {call['name']}: {e!r}"
                 print(result)
                 success = False
@@ -84,4 +78,4 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
             }
         # loop back round: the model gets called again with the longer list
 
-    yield {"type": "error", "data": "model exceeded 5 tool calls"}
+    yield {"type": "error", "data": f"model exceeded {MAX_TURNS} tool calls"}

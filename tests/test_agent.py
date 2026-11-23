@@ -78,7 +78,11 @@ def test_plain_answer_passes_events_through_and_stops():
 
     assert events == turn
     assert len(fake.seen) == 1
-    assert messages == [{"role": "user", "content": "Hi"}]  # nothing appended
+    # the reply is added to the conversation (so it gets saved with the thread)
+    assert messages == [
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "Hello!"},
+    ]
 
 
 # --- one tool round trip ---
@@ -129,7 +133,8 @@ def test_tool_round_trip_builds_conversation_in_ollama_format():
         },
     ]
     assert fake.seen[1] == expected  # what the second model call was sent
-    assert messages == expected  # the caller's list was grown in place
+    # the caller's list was grown in place, ending with the final reply
+    assert messages == [*expected, {"role": "assistant", "content": "It's 04:14."}]
 
 
 def test_tool_is_executed_with_its_name_and_arguments():
@@ -151,7 +156,8 @@ def test_non_string_tool_results_are_stringified():
     with patch("ceridwen.agent.execute_tool", return_value=42):
         run(fake, messages)
 
-    assert messages[-1]["content"] == "42"
+    tool_message = next(m for m in messages if m["role"] == "tool")
+    assert tool_message["content"] == "42"
 
 
 def test_text_said_alongside_a_tool_call_is_kept():
@@ -413,3 +419,37 @@ def test_system_prompt_is_reread_on_each_request(monkeypatch):
 
     assert first.system_prompts[0]["content"] == "You are version one."
     assert second.system_prompts[0]["content"] == "You are version two."
+
+
+# --- final reply ---
+
+
+def test_final_reply_has_no_tool_calls_key():
+    fake = FakeModel([tool_call("current_time"), DONE], [text("04:14."), DONE])
+    messages = [{"role": "user", "content": "Time?"}]
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        run(fake, messages)
+
+    assert messages[-1] == {"role": "assistant", "content": "04:14."}
+
+
+def test_every_assistant_turn_is_kept_across_chained_calls():
+    fake = FakeModel(
+        [tool_call("current_time", call_id="a"), DONE],
+        [tool_call("weather", call_id="b"), DONE],
+        [text("All done."), DONE],
+    )
+    messages = [{"role": "user", "content": "Go"}]
+
+    with patch("ceridwen.agent.execute_tool", side_effect=["04:14", "rain"]):
+        run(fake, messages)
+
+    assert [m["role"] for m in messages] == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
