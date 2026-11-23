@@ -57,6 +57,12 @@ def agent(monkeypatch):
     return fake
 
 
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok"}
+
+
 def new_thread(client) -> str:
     return client.post("/threads").json()["id"]
 

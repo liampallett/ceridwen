@@ -44,6 +44,16 @@ class ThreadPatch(BaseModel):
     title: str
 
 
+@app.get("/health")
+def health():
+    """Report that the backend is up and answering requests.
+
+    The app calls this on launch to check it can reach the server. It doesn't
+    check Ollama or the database, only that this process is running.
+    """
+    return {"status": "ok"}
+
+
 @app.post("/chat")
 def chat(request: ChatRequest):
     """Send a message to a thread and stream the agent's reply as NDJSON.
