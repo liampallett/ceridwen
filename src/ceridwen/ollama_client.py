@@ -4,16 +4,14 @@ from collections.abc import Iterator
 from ceridwen.tools import build_tools
 
 
-def stream_chat(model: str, message: str) -> Iterator[dict]:
+def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:
     with httpx.stream(
         "POST",
         "http://127.0.0.1:11434/api/chat",
         json={
             "model": model,
             "tools": build_tools(),
-            "messages": [
-                {"role": "user", "content": message}
-            ],
+            "messages": messages,
             "stream": True
         },
         timeout=120

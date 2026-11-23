@@ -31,7 +31,8 @@ def test_streaming_endpoint_sends_ndjson():
 
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("application/x-ndjson")
-        mock_stream.assert_called_once_with(MODEL, "Hello")
+        # The endpoint wraps the single message into a conversation list.
+        mock_stream.assert_called_once_with(MODEL, [{"role": "user", "content": "Hello"}])
 
 
 def test_streaming_endpoint_one_valid_json_object_per_line():

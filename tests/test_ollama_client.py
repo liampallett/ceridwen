@@ -8,6 +8,7 @@ from ceridwen.ollama_client import stream_chat
 from ceridwen.tools import build_tools
 
 MODEL = "gemma4:12b-mlx"
+MESSAGES = [{"role": "user", "content": "Hello"}]
 
 
 def run_stream(chunks: list) -> list[dict]:
@@ -20,7 +21,7 @@ def run_stream(chunks: list) -> list[dict]:
     with patch("ceridwen.ollama_client.httpx.stream") as mock_stream:
         mock_response = mock_stream.return_value.__enter__.return_value
         mock_response.iter_lines.return_value = lines
-        return list(stream_chat(MODEL, "Hello"))
+        return list(stream_chat(MODEL, MESSAGES))
 
 
 def msg(**fields) -> dict:
@@ -51,14 +52,14 @@ def test_stream_chat_connection_error():
         # stream_chat is a generator: nothing runs (so nothing raises)
         # until it's iterated, hence list().
         with pytest.raises(httpx.ConnectError):
-            list(stream_chat(MODEL, "Hello"))
+            list(stream_chat(MODEL, MESSAGES))
 
 
 def test_stream_chat_sends_expected_request():
     with patch("ceridwen.ollama_client.httpx.stream") as mock_stream:
         mock_stream.return_value.__enter__.return_value.iter_lines.return_value = []
 
-        list(stream_chat(MODEL, "Hello"))
+        list(stream_chat(MODEL, MESSAGES))
 
         mock_stream.assert_called_once_with(
             "POST",
@@ -66,11 +67,27 @@ def test_stream_chat_sends_expected_request():
             json={
                 "model": MODEL,
                 "tools": build_tools(),
-                "messages": [{"role": "user", "content": "Hello"}],
+                "messages": MESSAGES,
                 "stream": True,
             },
             timeout=120,
         )
+
+
+def test_stream_chat_sends_whole_conversation_unchanged():
+    conversation = [
+        {"role": "user", "content": "What time is it?"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "current_time", "arguments": {}}}
+        ]},
+        {"role": "tool", "tool_name": "current_time", "content": "2026-11-23T03:49:00+00:00"},
+    ]
+    with patch("ceridwen.ollama_client.httpx.stream") as mock_stream:
+        mock_stream.return_value.__enter__.return_value.iter_lines.return_value = []
+
+        list(stream_chat(MODEL, conversation))
+
+        assert mock_stream.call_args.kwargs["json"]["messages"] == conversation
 
 
 # --- events ---

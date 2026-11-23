@@ -25,7 +25,8 @@ async def health():
 
 @app.post("/chat/stream")
 def streaming_endpoint(request: ChatRequest):
-    lines = (f"{json.dumps(event)}\n" for event in stream_chat(request.model, request.message))
+    messages = [{"role": "user", "content": request.message}]
+    lines = (f"{json.dumps(event)}\n" for event in stream_chat(request.model, messages))
     return StreamingResponse(
         lines,
         media_type="application/x-ndjson"
