@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
 
-from ceridwen.ollama_client import stream_chat
+from ceridwen.agent import run_agent
 
 """
 Run with: uv run uvicorn ceridwen.main:app --reload
@@ -26,7 +26,7 @@ async def health():
 @app.post("/chat/stream")
 def streaming_endpoint(request: ChatRequest):
     messages = [{"role": "user", "content": request.message}]
-    lines = (f"{json.dumps(event)}\n" for event in stream_chat(request.model, messages))
+    lines = (f"{json.dumps(event)}\n" for event in run_agent(request.model, messages))
     return StreamingResponse(
         lines,
         media_type="application/x-ndjson"
