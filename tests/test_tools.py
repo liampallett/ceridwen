@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
@@ -20,20 +20,25 @@ def echo(n: int) -> int:
 
 @pytest.fixture
 def fake_tool(monkeypatch):
-    monkeypatch.setitem(TOOLS, "echo", {
-        "function": echo,
-        "description": "Test-only tool that returns its argument.",
-        "validation_schema": EchoArguments,
-    })
+    monkeypatch.setitem(
+        TOOLS,
+        "echo",
+        {
+            "function": echo,
+            "description": "Test-only tool that returns its argument.",
+            "validation_schema": EchoArguments,
+        },
+    )
 
 
 # --- execute_tool ---
+
 
 def test_current_time_returns_utc_iso_timestamp():
     parsed = datetime.fromisoformat(execute_tool("current_time", {}))
 
     assert parsed.tzinfo is not None
-    assert parsed.utcoffset() == timezone.utc.utcoffset(None)
+    assert parsed.utcoffset() == UTC.utcoffset(None)
 
 
 def test_current_time_rejects_arguments():
@@ -53,11 +58,11 @@ def test_execute_tool_passes_validated_arguments(fake_tool):
 @pytest.mark.parametrize(
     "args",
     [
-        {"n": "7"},          # numeric string isn't coerced (StrictInt)
-        {"n": 7.0},          # neither is a float
-        {"n": True},         # bools are ints in Python, but not here
-        {},                  # missing argument
-        {"n": 7, "m": 8},    # extra argument (extra="forbid")
+        {"n": "7"},  # numeric string isn't coerced (StrictInt)
+        {"n": 7.0},  # neither is a float
+        {"n": True},  # bools are ints in Python, but not here
+        {},  # missing argument
+        {"n": 7, "m": 8},  # extra argument (extra="forbid")
     ],
 )
 def test_execute_tool_rejects_invalid_arguments(fake_tool, args):
@@ -67,6 +72,7 @@ def test_execute_tool_rejects_invalid_arguments(fake_tool, args):
 
 # --- registry ---
 
+
 def test_every_tool_has_function_description_and_schema():
     for name, entry in TOOLS.items():
         assert callable(entry["function"]), name
@@ -75,6 +81,7 @@ def test_every_tool_has_function_description_and_schema():
 
 
 # --- build_tools ---
+
 
 def test_build_tools_returns_one_entry_per_tool():
     tools = build_tools()
@@ -90,7 +97,10 @@ def test_build_tools_uses_ollama_format():
 
         entry = TOOLS[t["function"]["name"]]
         assert t["function"]["description"] == entry["description"]
-        assert t["function"]["parameters"] == entry["validation_schema"].model_json_schema()
+        assert (
+            t["function"]["parameters"]
+            == entry["validation_schema"].model_json_schema()
+        )
 
 
 def test_build_tools_includes_typed_parameters(fake_tool):
@@ -103,7 +113,9 @@ def test_build_tools_includes_typed_parameters(fake_tool):
 
 
 def test_build_tools_current_time_takes_no_parameters():
-    time_tool = next(t for t in build_tools() if t["function"]["name"] == "current_time")
+    time_tool = next(
+        t for t in build_tools() if t["function"]["name"] == "current_time"
+    )
     params = time_tool["function"]["parameters"]
 
     assert params["properties"] == {}

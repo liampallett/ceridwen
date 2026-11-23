@@ -26,7 +26,11 @@ def run_stream(chunks: list) -> list[dict]:
 
 def msg(**fields) -> dict:
     """A mid-stream Ollama chunk with the given message fields."""
-    return {"model": MODEL, "message": {"role": "assistant", "content": "", **fields}, "done": False}
+    return {
+        "model": MODEL,
+        "message": {"role": "assistant", "content": "", **fields},
+        "done": False,
+    }
 
 
 DONE_CHUNK = {
@@ -44,6 +48,7 @@ DONE_CHUNK = {
 
 
 # --- the request ---
+
 
 def test_stream_chat_connection_error():
     with patch("ceridwen.ollama_client.httpx.stream") as mock_stream:
@@ -77,10 +82,16 @@ def test_stream_chat_sends_expected_request():
 def test_stream_chat_sends_whole_conversation_unchanged():
     conversation = [
         {"role": "user", "content": "What time is it?"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"function": {"name": "current_time", "arguments": {}}}
-        ]},
-        {"role": "tool", "tool_name": "current_time", "content": "2026-11-23T03:49:00+00:00"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"function": {"name": "current_time", "arguments": {}}}],
+        },
+        {
+            "role": "tool",
+            "tool_name": "current_time",
+            "content": "2026-11-23T03:49:00+00:00",
+        },
     ]
     with patch("ceridwen.ollama_client.httpx.stream") as mock_stream:
         mock_stream.return_value.__enter__.return_value.iter_lines.return_value = []
@@ -91,6 +102,7 @@ def test_stream_chat_sends_whole_conversation_unchanged():
 
 
 # --- events ---
+
 
 def test_content_chunks_become_content_events():
     events = run_stream([msg(content="Hello"), msg(content=" world")])
@@ -115,30 +127,65 @@ def test_empty_chunks_and_blank_lines_yield_nothing():
 
 
 def test_tool_call_is_flattened():
-    events = run_stream([msg(tool_calls=[
-        {"id": "call_314rv1rn", "function": {"index": 0, "name": "current_time", "arguments": {}}}
-    ])])
+    events = run_stream(
+        [
+            msg(
+                tool_calls=[
+                    {
+                        "id": "call_314rv1rn",
+                        "function": {
+                            "index": 0,
+                            "name": "current_time",
+                            "arguments": {},
+                        },
+                    }
+                ]
+            )
+        ]
+    )
 
-    assert events == [{
-        "type": "tool_call",
-        "data": {"id": "call_314rv1rn", "name": "current_time", "arguments": {}},
-    }]
+    assert events == [
+        {
+            "type": "tool_call",
+            "data": {"id": "call_314rv1rn", "name": "current_time", "arguments": {}},
+        }
+    ]
 
 
 def test_multiple_tool_calls_in_one_chunk_become_separate_events_in_order():
-    events = run_stream([msg(tool_calls=[
-        {"id": "call_a", "function": {"index": 0, "name": "current_time", "arguments": {}}},
-        {"id": "call_b", "function": {"index": 1, "name": "weather", "arguments": {"location": "Sheffield"}}},
-    ])])
+    events = run_stream(
+        [
+            msg(
+                tool_calls=[
+                    {
+                        "id": "call_a",
+                        "function": {
+                            "index": 0,
+                            "name": "current_time",
+                            "arguments": {},
+                        },
+                    },
+                    {
+                        "id": "call_b",
+                        "function": {
+                            "index": 1,
+                            "name": "weather",
+                            "arguments": {"location": "Sheffield"},
+                        },
+                    },
+                ]
+            )
+        ]
+    )
 
     assert [e["data"]["id"] for e in events] == ["call_a", "call_b"]
     assert events[1]["data"]["arguments"] == {"location": "Sheffield"}
 
 
 def test_tool_call_without_id_gets_none():
-    events = run_stream([msg(tool_calls=[
-        {"function": {"name": "current_time", "arguments": {}}}
-    ])])
+    events = run_stream(
+        [msg(tool_calls=[{"function": {"name": "current_time", "arguments": {}}}])]
+    )
 
     assert events[0]["data"]["id"] is None
 
@@ -146,24 +193,39 @@ def test_tool_call_without_id_gets_none():
 def test_done_chunk_yields_selected_metrics_only():
     events = run_stream([DONE_CHUNK])
 
-    assert events == [{
-        "type": "done",
-        "data": {
-            "done_reason": "stop",
-            "total_duration": 458613750,
-            "eval_count": 36,
-            "prompt_eval_count": 56,
-        },
-    }]
+    assert events == [
+        {
+            "type": "done",
+            "data": {
+                "done_reason": "stop",
+                "total_duration": 458613750,
+                "eval_count": 36,
+                "prompt_eval_count": 56,
+            },
+        }
+    ]
 
 
 def test_realistic_tool_call_turn():
     # Shape of a real Gemma response: think, call a tool, finish.
-    events = run_stream([
-        msg(thinking="I should use"),
-        msg(thinking=" current_time."),
-        msg(tool_calls=[{"id": "call_1", "function": {"index": 0, "name": "current_time", "arguments": {}}}]),
-        DONE_CHUNK,
-    ])
+    events = run_stream(
+        [
+            msg(thinking="I should use"),
+            msg(thinking=" current_time."),
+            msg(
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "function": {
+                            "index": 0,
+                            "name": "current_time",
+                            "arguments": {},
+                        },
+                    }
+                ]
+            ),
+            DONE_CHUNK,
+        ]
+    )
 
     assert [e["type"] for e in events] == ["thinking", "thinking", "tool_call", "done"]

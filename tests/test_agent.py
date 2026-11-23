@@ -17,12 +17,22 @@ def thinking(s: str) -> dict:
     return {"type": "thinking", "data": s}
 
 
-def tool_call(name: str, arguments: dict | None = None, call_id: str = "call_1") -> dict:
-    return {"type": "tool_call", "data": {"id": call_id, "name": name, "arguments": arguments or {}}}
+def tool_call(
+    name: str, arguments: dict | None = None, call_id: str = "call_1"
+) -> dict:
+    return {
+        "type": "tool_call",
+        "data": {"id": call_id, "name": name, "arguments": arguments or {}},
+    }
 
 
-def tool_result(name: str, result: str, success: bool = True, call_id: str = "call_1") -> dict:
-    return {"type": "tool_result", "data": {"id": call_id, "name": name, "result": result, "success": success}}
+def tool_result(
+    name: str, result: str, success: bool = True, call_id: str = "call_1"
+) -> dict:
+    return {
+        "type": "tool_result",
+        "data": {"id": call_id, "name": name, "result": result, "success": success},
+    }
 
 
 class FakeModel:
@@ -45,7 +55,9 @@ class FakeModel:
         if not self.turns:
             pytest.fail("run_agent called the model more times than expected")
         self.system_prompts.append(copy.deepcopy(messages[0]))
-        self.seen.append(copy.deepcopy(messages[1:]))  # conversation only, system message stripped
+        self.seen.append(
+            copy.deepcopy(messages[1:])
+        )  # conversation only, system message stripped
         return iter(self.turns.pop(0))
 
 
@@ -55,6 +67,7 @@ def run(fake: FakeModel, messages: list[dict]) -> list[dict]:
 
 
 # --- no tools ---
+
 
 def test_plain_answer_passes_events_through_and_stops():
     turn = [thinking("Hmm"), text("Hello"), text("!"), DONE]
@@ -70,6 +83,7 @@ def test_plain_answer_passes_events_through_and_stops():
 
 # --- one tool round trip ---
 
+
 def test_tool_round_trip_calls_model_twice_and_streams_both_turns():
     first = [thinking("Need the time"), tool_call("current_time"), DONE]
     second = [text("It's 04:14."), DONE]
@@ -79,7 +93,10 @@ def test_tool_round_trip_calls_model_twice_and_streams_both_turns():
         events = run(fake, [{"role": "user", "content": "What time is it?"}])
 
     # the tool_result event sits between the two model turns
-    assert events == first + [tool_result("current_time", "2026-11-23T04:14:00+00:00")] + second
+    assert (
+        events
+        == first + [tool_result("current_time", "2026-11-23T04:14:00+00:00")] + second
+    )
     assert len(fake.seen) == 2
 
 
@@ -95,13 +112,24 @@ def test_tool_round_trip_builds_conversation_in_ollama_format():
 
     expected = [
         {"role": "user", "content": "What time is it?"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "call_abc", "function": {"name": "current_time", "arguments": {}}}
-        ]},
-        {"role": "tool", "tool_name": "current_time", "content": "2026-11-23T04:14:00+00:00"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_abc",
+                    "function": {"name": "current_time", "arguments": {}},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_name": "current_time",
+            "content": "2026-11-23T04:14:00+00:00",
+        },
     ]
-    assert fake.seen[1] == expected   # what the second model call was sent
-    assert messages == expected       # the caller's list was grown in place
+    assert fake.seen[1] == expected  # what the second model call was sent
+    assert messages == expected  # the caller's list was grown in place
 
 
 def test_tool_is_executed_with_its_name_and_arguments():
@@ -141,19 +169,30 @@ def test_text_said_alongside_a_tool_call_is_kept():
 
 # --- several tools ---
 
+
 def test_two_tool_calls_in_one_turn():
     fake = FakeModel(
-        [tool_call("current_time", call_id="a"), tool_call("weather", {"location": "Sheffield"}, call_id="b"), DONE],
+        [
+            tool_call("current_time", call_id="a"),
+            tool_call("weather", {"location": "Sheffield"}, call_id="b"),
+            DONE,
+        ],
         [text("Done."), DONE],
     )
     messages = [{"role": "user", "content": "Time and weather?"}]
 
-    with patch("ceridwen.agent.execute_tool", side_effect=["04:14", "rain"]) as mock_exec:
+    with patch(
+        "ceridwen.agent.execute_tool", side_effect=["04:14", "rain"]
+    ) as mock_exec:
         run(fake, messages)
 
     # one assistant message carrying both calls, then one tool message per call, in order
     assert [c["id"] for c in messages[1]["tool_calls"]] == ["a", "b"]
-    assert messages[2] == {"role": "tool", "tool_name": "current_time", "content": "04:14"}
+    assert messages[2] == {
+        "role": "tool",
+        "tool_name": "current_time",
+        "content": "04:14",
+    }
     assert messages[3] == {"role": "tool", "tool_name": "weather", "content": "rain"}
     assert mock_exec.call_count == 2
 
@@ -170,7 +209,7 @@ def test_chained_tool_calls_across_turns():
         events = run(fake, [{"role": "user", "content": "Go"}])
 
     assert len(fake.seen) == 3
-    assert len(fake.seen[2]) == 5   # user, assistant, tool, assistant, tool
+    assert len(fake.seen[2]) == 5  # user, assistant, tool, assistant, tool
     assert events[-2:] == [text("All done."), DONE]
 
 
@@ -187,6 +226,7 @@ def test_notepads_reset_between_turns():
 
 # --- tool_result events ---
 
+
 def test_tool_result_event_carries_stringified_result():
     fake = FakeModel([tool_call("count", call_id="c1"), DONE], [text("42."), DONE])
 
@@ -198,7 +238,11 @@ def test_tool_result_event_carries_stringified_result():
 
 def test_one_tool_result_event_per_call_matched_by_id():
     fake = FakeModel(
-        [tool_call("current_time", call_id="a"), tool_call("weather", call_id="b"), DONE],
+        [
+            tool_call("current_time", call_id="a"),
+            tool_call("weather", call_id="b"),
+            DONE,
+        ],
         [text("Done."), DONE],
     )
 
@@ -211,13 +255,19 @@ def test_one_tool_result_event_per_call_matched_by_id():
 
 # --- failing tools ---
 
-def test_failing_tool_does_not_crash_the_stream():
-    fake = FakeModel([tool_call("add", {"a": 2, "b": 2}), DONE], [text("2 + 2 = 4"), DONE])
 
-    with patch("ceridwen.agent.execute_tool", side_effect=ValueError("Tool add not in tool dict.")):
+def test_failing_tool_does_not_crash_the_stream():
+    fake = FakeModel(
+        [tool_call("add", {"a": 2, "b": 2}), DONE], [text("2 + 2 = 4"), DONE]
+    )
+
+    with patch(
+        "ceridwen.agent.execute_tool",
+        side_effect=ValueError("Tool add not in tool dict."),
+    ):
         events = run(fake, [{"role": "user", "content": "Use add"}])
 
-    assert len(fake.seen) == 2                       # the model got a second turn
+    assert len(fake.seen) == 2  # the model got a second turn
     assert events[-2:] == [text("2 + 2 = 4"), DONE]  # and its answer streamed
 
 
@@ -225,7 +275,10 @@ def test_failing_tool_is_reported_to_the_model():
     fake = FakeModel([tool_call("add"), DONE], [text("No add tool."), DONE])
     messages = [{"role": "user", "content": "Use add"}]
 
-    with patch("ceridwen.agent.execute_tool", side_effect=ValueError("Tool add not in tool dict.")):
+    with patch(
+        "ceridwen.agent.execute_tool",
+        side_effect=ValueError("Tool add not in tool dict."),
+    ):
         run(fake, messages)
 
     tool_message = fake.seen[1][-1]
@@ -252,12 +305,22 @@ def test_one_failing_tool_does_not_stop_the_others():
     )
     messages = [{"role": "user", "content": "Go"}]
 
-    with patch("ceridwen.agent.execute_tool", side_effect=[ValueError("nope"), "04:14"]):
+    with patch(
+        "ceridwen.agent.execute_tool", side_effect=[ValueError("nope"), "04:14"]
+    ):
         events = run(fake, messages)
 
-    results = {e["data"]["id"]: e["data"]["success"] for e in events if e["type"] == "tool_result"}
+    results = {
+        e["data"]["id"]: e["data"]["success"]
+        for e in events
+        if e["type"] == "tool_result"
+    }
     assert results == {"a": False, "b": True}
-    assert messages[3] == {"role": "tool", "tool_name": "current_time", "content": "04:14"}
+    assert messages[3] == {
+        "role": "tool",
+        "tool_name": "current_time",
+        "content": "04:14",
+    }
 
 
 def test_real_unknown_tool_goes_through_execute_tool():
@@ -273,6 +336,7 @@ def test_real_unknown_tool_goes_through_execute_tool():
 
 # --- turn limit ---
 
+
 def test_stops_with_error_event_after_max_turns():
     from ceridwen.agent import MAX_TURNS
 
@@ -282,7 +346,7 @@ def test_stops_with_error_event_after_max_turns():
     with patch("ceridwen.agent.execute_tool", return_value="t"):
         events = run(fake, [{"role": "user", "content": "Loop forever"}])
 
-    assert len(fake.seen) == MAX_TURNS     # never asks a sixth time (FakeModel would fail)
+    assert len(fake.seen) == MAX_TURNS  # never asks a sixth time (FakeModel would fail)
     assert events[-1]["type"] == "error"
     assert [e["type"] for e in events].count("error") == 1
 
@@ -297,6 +361,7 @@ def test_no_error_event_when_answered_within_limit():
 
 
 # --- system prompt ---
+
 
 def test_system_prompt_is_sent_first_on_every_model_call():
     fake = FakeModel([tool_call("current_time"), DONE], [text("04:14."), DONE])
@@ -338,7 +403,9 @@ def test_system_prompt_is_reread_on_each_request(monkeypatch):
     import ceridwen.agent
 
     prompts = iter(["You are version one.", "You are version two."])
-    monkeypatch.setattr(ceridwen.agent.Path, "read_text", lambda self, *a, **kw: next(prompts))
+    monkeypatch.setattr(
+        ceridwen.agent.Path, "read_text", lambda self, *a, **kw: next(prompts)
+    )
 
     first, second = FakeModel([text("Hi"), DONE]), FakeModel([text("Hi"), DONE])
     run(first, [{"role": "user", "content": "Hi"}])

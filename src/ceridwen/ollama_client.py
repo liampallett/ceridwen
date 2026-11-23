@@ -1,6 +1,8 @@
-import httpx
 import json
 from collections.abc import Iterator
+
+import httpx
+
 from ceridwen.tools import build_tools
 
 
@@ -12,9 +14,9 @@ def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:
             "model": model,
             "tools": build_tools(),
             "messages": messages,
-            "stream": True
+            "stream": True,
         },
-        timeout=120
+        timeout=120,
     ) as response:
         response.raise_for_status()
 
@@ -36,11 +38,18 @@ def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:
                     call_id = call.get("id")
                     name = call["function"]["name"]
                     arguments = call["function"]["arguments"]
-                    yield {"type": "tool_call", "data": {
-                        "id": call_id,
-                        "name": name,
-                        "arguments": arguments
-                    }}
+                    yield {
+                        "type": "tool_call",
+                        "data": {"id": call_id, "name": name, "arguments": arguments},
+                    }
             if done:
-                metrics = {key: chunk[key] for key in ("done_reason", "total_duration", "eval_count", "prompt_eval_count")}
+                metrics = {
+                    key: chunk[key]
+                    for key in (
+                        "done_reason",
+                        "total_duration",
+                        "eval_count",
+                        "prompt_eval_count",
+                    )
+                }
                 yield {"type": "done", "data": metrics}
