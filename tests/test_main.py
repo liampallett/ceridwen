@@ -44,6 +44,8 @@ def client(tmp_path, monkeypatch):
     # Point the app at a throwaway database, then start it. Using TestClient
     # as a context manager runs the lifespan, so init_db creates the tables.
     monkeypatch.setattr(main, "DB_PATH", tmp_path / "test.db")
+    # Never reach a real Ollama for titles; tests that care override this.
+    monkeypatch.setattr(main, "generate_title", lambda model, message: "")
     with TestClient(main.app) as c:
         yield c
 
@@ -297,7 +299,7 @@ def test_first_turn_gets_a_title(client, agent, titler):
 
     chat(client, thread_id, "Hello")
 
-    assert titler == ["Hello"]                       # titled from the user's message
+    assert titler == ["Hello"]  # titled from the user's message
     [thread] = client.get("/threads").json()
     assert thread["title"] == "Greeting"
 
@@ -316,7 +318,7 @@ def test_later_turns_are_not_retitled(client, agent, titler):
     chat(client, thread_id, "Hello")
     r = chat(client, thread_id, "Again")
 
-    assert titler == ["Hello"]                       # only asked once
+    assert titler == ["Hello"]  # only asked once
     assert all(json.loads(line)["type"] != "title" for line in r.text.splitlines())
 
 
@@ -333,7 +335,9 @@ def test_titling_failure_is_quiet(client, agent, monkeypatch):
 
     events = [json.loads(line) for line in r.text.splitlines()]
     assert all(e["type"] not in ("title", "error") for e in events)
-    assert len(client.get(f"/threads/{thread_id}/messages").json()) == 2   # turn still saved
+    assert (
+        len(client.get(f"/threads/{thread_id}/messages").json()) == 2
+    )  # turn still saved
     [thread] = client.get("/threads").json()
     assert thread["title"] == ""
 

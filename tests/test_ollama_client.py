@@ -280,7 +280,9 @@ def test_generate_title_returns_the_reply():
     assert title == "Current time query"
 
 
-@pytest.mark.parametrize("reply", ['"Current time query"', "Current time query.", "  Current time query\n"])
+@pytest.mark.parametrize(
+    "reply", ['"Current time query"', "Current time query.", "  Current time query\n"]
+)
 def test_generate_title_strips_quotes_punctuation_and_whitespace(reply):
     title, _ = run_generate_title(reply)
     assert title == "Current time query"
@@ -291,7 +293,7 @@ def test_generate_title_request_has_no_tools_and_no_streaming():
 
     body = mock_post.call_args.kwargs["json"]
     assert mock_post.call_args.args[0] == "http://127.0.0.1:11434/api/chat"
-    assert "tools" not in body           # a title request must not be able to call tools
+    assert "tools" not in body  # a title request must not be able to call tools
     assert body["stream"] is False
     assert body["think"] is False
     assert body["messages"][0]["role"] == "system"
