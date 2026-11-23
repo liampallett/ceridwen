@@ -112,12 +112,12 @@ Every line of the response is one JSON event:
 
 ```bash
 git clone https://github.com/liampallett/ceridwen
-cd ceridwen
+cd ceridwen/backend
 uv sync
 ollama pull gemma4:12b-mlx   # or any tool-capable model
 ```
 
-**Run the backend**
+**Run the backend** (from `backend/`)
 
 ```bash
 uv run uvicorn ceridwen.main:app --reload
@@ -134,9 +134,9 @@ curl -N http://127.0.0.1:8000/chat \
   -d '{"model": "gemma4:12b-mlx", "message": "What time is it?", "thread_id": "<thread-id>"}'
 ```
 
-The database is created automatically at `src/ceridwen/database/ceridwen.db` on first run.
+The database is created automatically at `backend/src/ceridwen/database/ceridwen.db` on first run.
 
-**Run the tests and linter**
+**Run the tests and linter** (from `backend/`)
 
 ```bash
 uv run ruff check . --fix && uv run ruff format . && uv run pytest
@@ -147,15 +147,18 @@ uv run ruff check . --fix && uv run ruff format . && uv run pytest
 # Project Structure
 
 ```
-src/ceridwen/
-├── main.py            # FastAPI app: thread endpoints and /chat
-├── agent.py           # agent loop: model calls, tool execution, turn limit
-├── ollama_client.py   # Ollama HTTP client and event translation
-├── tools.py           # tool registry, schemas and validation
-├── db.py              # SQLite storage for threads and messages
-└── prompts/
-    └── system.md      # system prompt, re-read on every request
-tests/                 # one test file per module; Ollama is mocked, databases are temporary
+backend/                   # Python backend (FastAPI + Ollama), managed with uv
+├── pyproject.toml
+├── src/ceridwen/
+│   ├── main.py            # FastAPI app: thread endpoints and /chat
+│   ├── agent.py           # agent loop: model calls, tool execution, turn limit
+│   ├── ollama_client.py   # Ollama HTTP client and event translation
+│   ├── tools.py           # tool registry, schemas and validation
+│   ├── db.py              # SQLite storage for threads and messages
+│   └── prompts/
+│       └── system.md      # system prompt, re-read on every request
+└── tests/                 # one test file per module; Ollama is mocked, databases are temporary
+app/                       # SwiftUI macOS app (planned)
 ```
 
 # Future Improvements
