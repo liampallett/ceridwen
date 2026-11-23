@@ -2,7 +2,12 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ceridwen.ollama_client import chat, stream_chat
+from ceridwen.ollama_client import stream_chat
+
+"""
+Run with: uv run uvicorn ceridwen.main:app --reload
+"""
+
 
 app = FastAPI()
 
@@ -15,12 +20,6 @@ class ChatRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-
-@app.post("/chat")
-def chat_endpoint(request: ChatRequest):
-    r = chat(request.model, request.message)
-    return {"response": r}
 
 
 @app.post("/chat/stream")
