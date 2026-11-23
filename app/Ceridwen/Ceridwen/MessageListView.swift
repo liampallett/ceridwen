@@ -30,5 +30,6 @@ struct MessageListView: View {
             }
             .padding()
         }
+        .defaultScrollAnchor(.bottom)
     }
 }
