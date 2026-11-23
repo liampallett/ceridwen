@@ -20,6 +20,7 @@
     },
   ],
   "files": [
+    { "path": "<PROJECT>/Ceridwen.xcodeproj" },
     { "kind": "folder", "path": "Ceridwen", "target-membership": [ "Ceridwen" ] },
     { "kind": "folder", "path": "CeridwenTests", "target-membership": [ "CeridwenTests" ] },
     { "kind": "folder", "path": "CeridwenUITests", "target-membership": [ "CeridwenUITests" ] },
