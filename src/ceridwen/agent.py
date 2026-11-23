@@ -3,9 +3,11 @@ from collections.abc import Iterator
 from ceridwen.ollama_client import stream_chat
 from ceridwen.tools import execute_tool
 
+MAX_TURNS = 5
+
 
 def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
-    while True:                                   # one pass = one model call
+    for _ in range(MAX_TURNS):                                   # one pass = one model call
         # fresh "notepads" for THIS model call
         # (what text did it say? what tools did it ask for?)
         thinking = ""
@@ -82,3 +84,8 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
                 }
             }
         # loop back round: the model gets called again with the longer list
+
+    yield {
+        "type": "error",
+        "data": "model exceeded 5 tool calls"
+    }

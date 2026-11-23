@@ -265,3 +265,28 @@ def test_real_unknown_tool_goes_through_execute_tool():
     [result] = [e["data"] for e in events if e["type"] == "tool_result"]
     assert result["success"] is False
     assert "definitely_not_a_tool" in result["result"]
+
+
+# --- turn limit ---
+
+def test_stops_with_error_event_after_max_turns():
+    from ceridwen.agent import MAX_TURNS
+
+    # a model that asks for a tool every single time
+    fake = FakeModel(*[[tool_call("current_time"), DONE] for _ in range(MAX_TURNS)])
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        events = run(fake, [{"role": "user", "content": "Loop forever"}])
+
+    assert len(fake.seen) == MAX_TURNS     # never asks a sixth time (FakeModel would fail)
+    assert events[-1]["type"] == "error"
+    assert [e["type"] for e in events].count("error") == 1
+
+
+def test_no_error_event_when_answered_within_limit():
+    fake = FakeModel([tool_call("current_time"), DONE], [text("04:45."), DONE])
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        events = run(fake, [{"role": "user", "content": "Time?"}])
+
+    assert all(e["type"] != "error" for e in events)
