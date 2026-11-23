@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Textual
 
 struct MessageListView: View {
     let messages: [Message]
@@ -22,7 +23,7 @@ struct MessageListView: View {
                         Text(message.role.capitalized)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(message.content)
+                        StructuredText(markdown: message.content)
                             .textSelection(.enabled)
                     }
                 }
