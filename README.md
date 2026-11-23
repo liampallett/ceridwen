@@ -123,6 +123,60 @@ ollama pull gemma4:12b-mlx   # or any tool-capable model
 uv run uvicorn ceridwen.main:app --reload
 ```
 
+**Run the backend as a background service (macOS)**
+
+So the app always has a backend to talk to, the backend can run as a per-user LaunchAgent: started at login, restarted if it crashes, independent of any terminal. The app connects to whatever is listening on port 8000.
+
+Create the log folder, then save the following as `~/Library/LaunchAgents/space.liampallett.ceridwen.backend.plist`, replacing `/path/to/ceridwen` with the absolute path to your clone (launchd needs absolute paths, no `~`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>space.liampallett.ceridwen.backend</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/ceridwen/backend/.venv/bin/uvicorn</string>
+        <string>ceridwen.main:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/ceridwen/backend</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/you/Library/Logs/ceridwen/backend.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/you/Library/Logs/ceridwen/backend.log</string>
+</dict>
+</plist>
+```
+
+```bash
+mkdir -p ~/Library/Logs/ceridwen
+
+# start it (and at every login from now on)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/space.liampallett.ceridwen.backend.plist
+
+# restart, e.g. after changing backend code
+launchctl kickstart -k gui/$(id -u)/space.liampallett.ceridwen.backend
+
+# stop it, e.g. to run `uv run uvicorn ... --reload` yourself while developing
+launchctl bootout gui/$(id -u)/space.liampallett.ceridwen.backend
+
+# watch the log
+tail -f ~/Library/Logs/ceridwen/backend.log
+```
+
+It runs uvicorn straight from the virtualenv rather than through `uv run`, because launchd starts jobs with an almost empty environment and won't find `uv`. Run `uv sync` in `backend/` first so the virtualenv exists. If the log shows `Operation not permitted`, macOS is blocking a background process from reading a protected folder (Desktop, Documents, Downloads); either grant access in System Settings → Privacy & Security, or keep the clone somewhere unprotected such as `~/Developer`.
+
 **Start a thread and send a message**
 
 ```bash
