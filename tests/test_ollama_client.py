@@ -257,3 +257,52 @@ def test_list_models_raises_when_ollama_is_down():
 
         with pytest.raises(httpx.ConnectError):
             list_models()
+
+
+# --- generate_title ---
+
+
+def run_generate_title(reply: str):
+    from ceridwen.ollama_client import generate_title
+
+    with patch("ceridwen.ollama_client.httpx.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "model": MODEL,
+            "message": {"role": "assistant", "content": reply},
+            "done": True,
+        }
+        title = generate_title(MODEL, "What time is it?")
+    return title, mock_post
+
+
+def test_generate_title_returns_the_reply():
+    title, _ = run_generate_title("Current time query")
+    assert title == "Current time query"
+
+
+@pytest.mark.parametrize("reply", ['"Current time query"', "Current time query.", "  Current time query\n"])
+def test_generate_title_strips_quotes_punctuation_and_whitespace(reply):
+    title, _ = run_generate_title(reply)
+    assert title == "Current time query"
+
+
+def test_generate_title_request_has_no_tools_and_no_streaming():
+    _, mock_post = run_generate_title("Current time query")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert mock_post.call_args.args[0] == "http://127.0.0.1:11434/api/chat"
+    assert "tools" not in body           # a title request must not be able to call tools
+    assert body["stream"] is False
+    assert body["think"] is False
+    assert body["messages"][0]["role"] == "system"
+    assert body["messages"][-1] == {"role": "user", "content": "What time is it?"}
+
+
+def test_generate_title_raises_when_ollama_errors():
+    from ceridwen.ollama_client import generate_title
+
+    with patch("ceridwen.ollama_client.httpx.post") as mock_post:
+        mock_post.side_effect = httpx.ConnectError("Connection refused")
+
+        with pytest.raises(httpx.ConnectError):
+            generate_title(MODEL, "Hi")

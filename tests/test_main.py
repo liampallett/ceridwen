@@ -274,3 +274,74 @@ def test_rename_unknown_thread_is_404(client):
 def test_rename_requires_title(client):
     r = client.patch(f"/threads/{new_thread(client)}", json={})
     assert r.status_code == 422
+
+
+# --- auto-titling ---
+
+
+@pytest.fixture
+def titler(monkeypatch):
+    """Replace generate_title, recording what it was asked to title."""
+    calls = []
+
+    def fake_generate_title(model, message):
+        calls.append(message)
+        return "Greeting"
+
+    monkeypatch.setattr(main, "generate_title", fake_generate_title)
+    return calls
+
+
+def test_first_turn_gets_a_title(client, agent, titler):
+    thread_id = new_thread(client)
+
+    chat(client, thread_id, "Hello")
+
+    assert titler == ["Hello"]                       # titled from the user's message
+    [thread] = client.get("/threads").json()
+    assert thread["title"] == "Greeting"
+
+
+def test_title_event_is_the_last_line(client, agent, titler):
+    r = chat(client, new_thread(client), "Hello")
+
+    assert r.text.endswith("\n")
+    events = [json.loads(line) for line in r.text.splitlines()]
+    assert events[-1] == {"type": "title", "data": "Greeting"}
+
+
+def test_later_turns_are_not_retitled(client, agent, titler):
+    thread_id = new_thread(client)
+
+    chat(client, thread_id, "Hello")
+    r = chat(client, thread_id, "Again")
+
+    assert titler == ["Hello"]                       # only asked once
+    assert all(json.loads(line)["type"] != "title" for line in r.text.splitlines())
+
+
+def test_titling_failure_is_quiet(client, agent, monkeypatch):
+    import httpx
+
+    def broken(model, message):
+        raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr(main, "generate_title", broken)
+    thread_id = new_thread(client)
+
+    r = chat(client, thread_id, "Hello")
+
+    events = [json.loads(line) for line in r.text.splitlines()]
+    assert all(e["type"] not in ("title", "error") for e in events)
+    assert len(client.get(f"/threads/{thread_id}/messages").json()) == 2   # turn still saved
+    [thread] = client.get("/threads").json()
+    assert thread["title"] == ""
+
+
+def test_empty_title_is_not_saved(client, agent, monkeypatch):
+    monkeypatch.setattr(main, "generate_title", lambda model, message: "")
+    thread_id = new_thread(client)
+
+    r = chat(client, thread_id, "Hello")
+
+    assert all(json.loads(line)["type"] != "title" for line in r.text.splitlines())

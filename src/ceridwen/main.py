@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from ceridwen import db
 from ceridwen.agent import run_agent
-from ceridwen.ollama_client import list_models
+from ceridwen.ollama_client import list_models, generate_title
 
 DB_PATH = Path(__file__).parent / "database" / "ceridwen.db"
 
@@ -90,6 +90,17 @@ def _stream_turn(
         yield f"{json.dumps({'type': 'error', 'data': str(e)})}\n"
         return
     db.add_messages(DB_PATH, thread_id, messages[start:])
+    if start == 0:
+        title = ""
+
+        try:
+            title = generate_title(model, messages[start]["content"])
+        except httpx.HTTPError:
+            pass
+
+        if title:
+            db.rename_thread(DB_PATH, thread_id, title)
+            yield f"{json.dumps({"type": "title", "data": title})}"
 
 
 @app.get("/models")

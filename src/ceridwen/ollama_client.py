@@ -20,6 +20,24 @@ def list_models() -> list[str]:
     return [model["name"] for model in data["models"]]
 
 
+def generate_title(model: str, message: str) -> str:
+    url = "http://127.0.0.1:11434/api/chat"
+    response = httpx.post(
+        url,
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Reply with only a title for this conversation, 3 to 6 words, no quotes or punctuation."},
+                {"role": "user", "content": message},
+            ],
+            "stream": False,
+            "think": False,
+        }, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data["message"]["content"].strip(' "\'.\n')
+
+
 def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:
     """Send a conversation to Ollama and yield its response as events.
 
