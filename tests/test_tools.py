@@ -1,45 +1,39 @@
 from datetime import datetime, timezone
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
 
-from ceridwen.tools import TOOLS, execute_tool
-
-
-def test_add_returns_sum():
-    assert execute_tool("add", {"a": 2, "b": 3}) == 5
+from ceridwen.tools import TOOLS, build_tools, execute_tool
 
 
-def test_add_handles_negative_numbers():
-    assert execute_tool("add", {"a": -4, "b": 1}) == -3
+# A throwaway tool with typed arguments, so execute_tool's validation is
+# tested independently of whichever real tools happen to exist.
+class EchoArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+    n: StrictInt
+
+
+def echo(n: int) -> int:
+    return n
+
+
+@pytest.fixture
+def fake_tool(monkeypatch):
+    monkeypatch.setitem(TOOLS, "echo", {
+        "function": echo,
+        "description": "Test-only tool that returns its argument.",
+        "validation_schema": EchoArguments,
+    })
+
+
+# --- execute_tool ---
 
 def test_current_time_returns_utc_iso_timestamp():
-    r = execute_tool("current_time", {})
+    parsed = datetime.fromisoformat(execute_tool("current_time", {}))
 
-    parsed = datetime.fromisoformat(r)
     assert parsed.tzinfo is not None
     assert parsed.utcoffset() == timezone.utc.utcoffset(None)
-
-
-def test_unknown_tool_raises_value_error():
-    with pytest.raises(ValueError, match="not_a_tool"):
-        execute_tool("not_a_tool", {})
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        {"a": "2", "b": 3},      # numeric string isn't coerced (StrictInt)
-        {"a": 2.0, "b": 3},      # neither is a float
-        {"a": True, "b": 3},     # bools are ints in Python, but not here
-        {"a": 2},                # missing argument
-        {"a": 2, "b": 3, "c": 4},  # extra argument (extra="forbid")
-    ],
-)
-def test_add_rejects_invalid_arguments(args):
-    with pytest.raises(ValidationError):
-        execute_tool("add", args)
 
 
 def test_current_time_rejects_arguments():
@@ -47,7 +41,70 @@ def test_current_time_rejects_arguments():
         execute_tool("current_time", {"timezone": "Europe/London"})
 
 
-def test_every_tool_has_function_and_schema():
+def test_unknown_tool_raises_value_error():
+    with pytest.raises(ValueError, match="not_a_tool"):
+        execute_tool("not_a_tool", {})
+
+
+def test_execute_tool_passes_validated_arguments(fake_tool):
+    assert execute_tool("echo", {"n": 7}) == 7
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"n": "7"},          # numeric string isn't coerced (StrictInt)
+        {"n": 7.0},          # neither is a float
+        {"n": True},         # bools are ints in Python, but not here
+        {},                  # missing argument
+        {"n": 7, "m": 8},    # extra argument (extra="forbid")
+    ],
+)
+def test_execute_tool_rejects_invalid_arguments(fake_tool, args):
+    with pytest.raises(ValidationError):
+        execute_tool("echo", args)
+
+
+# --- registry ---
+
+def test_every_tool_has_function_description_and_schema():
     for name, entry in TOOLS.items():
         assert callable(entry["function"]), name
+        assert entry["description"].strip(), name
         assert "validation_schema" in entry, name
+
+
+# --- build_tools ---
+
+def test_build_tools_returns_one_entry_per_tool():
+    tools = build_tools()
+
+    assert len(tools) == len(TOOLS)
+    assert {t["function"]["name"] for t in tools} == set(TOOLS)
+
+
+def test_build_tools_uses_ollama_format():
+    for t in build_tools():
+        assert t["type"] == "function"
+        assert set(t["function"]) == {"name", "description", "parameters"}
+
+        entry = TOOLS[t["function"]["name"]]
+        assert t["function"]["description"] == entry["description"]
+        assert t["function"]["parameters"] == entry["validation_schema"].model_json_schema()
+
+
+def test_build_tools_includes_typed_parameters(fake_tool):
+    echo_tool = next(t for t in build_tools() if t["function"]["name"] == "echo")
+    params = echo_tool["function"]["parameters"]
+
+    assert params["type"] == "object"
+    assert params["required"] == ["n"]
+    assert params["properties"]["n"]["type"] == "integer"
+
+
+def test_build_tools_current_time_takes_no_parameters():
+    time_tool = next(t for t in build_tools() if t["function"]["name"] == "current_time")
+    params = time_tool["function"]["parameters"]
+
+    assert params["properties"] == {}
+    assert "required" not in params
