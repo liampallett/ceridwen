@@ -54,13 +54,31 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
         # 2. for each tool call: run it, append a {"role": "tool", ...} message
 
         for call in tool_calls:
-            result = execute_tool(call["name"], call["arguments"])
+            try:
+                result = execute_tool(call["name"], call["arguments"])
+                success = True
+            except Exception as e:
+                result = f'Error running {call["name"]}: {e!r}'
+                print(result)
+                success = False
+
+            result = str(result)
+
             messages.append(
                 {
                     "role": "tool",
                     "tool_name": call["name"],
-                    "content": str(result)
+                    "content": result
                 }
             )
 
+            yield {
+                "type": "tool_result",
+                "data": {
+                    "id": call["id"],
+                    "name": call["name"],
+                    "result": result,
+                    "success": success
+                }
+            }
         # loop back round: the model gets called again with the longer list

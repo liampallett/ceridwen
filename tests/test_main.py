@@ -24,7 +24,7 @@ def test_health():
 
 
 def test_streaming_endpoint_sends_ndjson():
-    with patch("ceridwen.main.stream_chat") as mock_stream:
+    with patch("ceridwen.main.run_agent") as mock_stream:
         mock_stream.return_value = iter(EVENTS)
 
         r = client.post("/chat/stream", json={"model": MODEL, "message": "Hello"})
@@ -36,7 +36,7 @@ def test_streaming_endpoint_sends_ndjson():
 
 
 def test_streaming_endpoint_one_valid_json_object_per_line():
-    with patch("ceridwen.main.stream_chat") as mock_stream:
+    with patch("ceridwen.main.run_agent") as mock_stream:
         mock_stream.return_value = iter(EVENTS)
 
         r = client.post("/chat/stream", json={"model": MODEL, "message": "Hello"})
