@@ -11,6 +11,7 @@ struct Message: Codable, Identifiable {
     let id = UUID()
     let role: String
     var content: String
+    var thinking: String = ""
     let toolName: String?
     
     enum CodingKeys: String, CodingKey {

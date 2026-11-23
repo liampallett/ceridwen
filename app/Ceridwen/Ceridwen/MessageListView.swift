@@ -16,13 +16,21 @@ struct MessageListView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 let filtered = messages.filter {
-                    message in message.role != "tool" && !message.content.isEmpty
+                    message in message.role != "tool" && (!message.thinking.isEmpty || !message.content.isEmpty)
                 }
                 ForEach(filtered) { message in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(message.role.capitalized)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if !message.thinking.isEmpty {
+                            DisclosureGroup("Thinking") {
+                                StructuredText(markdown: message.thinking)
+                            }
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         StructuredText(markdown: message.content)
                             .textSelection(.enabled)
                     }

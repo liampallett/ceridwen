@@ -132,6 +132,8 @@ struct ContentView: View {
                     if let index = threads.firstIndex(where: { $0.id == selectedThreadID }) {
                         threads[index].title = newTitle
                     }
+                case .thinking(let thinkingText):
+                    messages[messages.count - 1].thinking += thinkingText
                 default:
                     break
                 }
