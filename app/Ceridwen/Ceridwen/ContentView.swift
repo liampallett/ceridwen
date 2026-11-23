@@ -34,6 +34,14 @@ struct ContentView: View {
                     List(threads, selection: $selectedThreadID) { thread in
                         Text(thread.title.isEmpty ? "New thread" : thread.title)
                     }
+                    .toolbar {
+                        Button {
+                            Task { await newThread() }
+                        } label: {
+                            Label("New thread", systemImage: "square.and.pencil")
+                        }
+                        .keyboardShortcut("n", modifiers: .command)
+                    }
                 } detail: {
                     if selectedThreadID != nil {
                         VStack(spacing: 0) {
@@ -81,16 +89,14 @@ struct ContentView: View {
             let (_, response) = try await URLSession.shared.data(from: url)
             let status = (response as? HTTPURLResponse)?.statusCode
             if status == 200 {
-                let threadsURL = URL(string: "http://127.0.0.1:8000/threads")!
-                let (data, _) = try await URLSession.shared.data(from: threadsURL)
-                let decoder = JSONDecoder()
-                decoder.keyDecodingStrategy = .convertFromSnakeCase
-                threads = try decoder.decode([ChatThread].self, from: data)
+                try await loadThreads()
                 connectionState = .connected
             } else {
+                print("[ceridwen] health returned status:", status as Any)
                 connectionState = .unreachable
             }
         } catch {
+            print("[ceridwen] connect failed:", error)
             connectionState = .unreachable
         }
     }
@@ -122,12 +128,37 @@ struct ContentView: View {
                 switch event{
                 case .content(let text):
                     messages[messages.count - 1].content += text
+                case .title(let newTitle):
+                    if let index = threads.firstIndex(where: { $0.id == selectedThreadID }) {
+                        threads[index].title = newTitle
+                    }
                 default:
                     break
                 }
             }
         } catch {
             print("[ceridwen] send failed:", error)
+        }
+    }
+    
+    func loadThreads() async throws {
+        let url = URL(string: "http://127.0.0.1:8000/threads")!
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        threads = try decoder.decode([ChatThread].self, from: data)
+    }
+    
+    func newThread() async {
+        do {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:8000/threads")!)
+            request.httpMethod = "POST"
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let created = try JSONDecoder().decode(NewThreadResponse.self, from: data)
+            try await loadThreads()
+            selectedThreadID = created.id
+        } catch {
+            print("[ceridwen] new thread failed:", error)
         }
     }
 }

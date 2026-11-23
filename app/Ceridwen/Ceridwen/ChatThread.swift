@@ -9,7 +9,11 @@ import Foundation
 
 struct ChatThread: Codable, Identifiable {
     let id: String
-    let title: String
+    var title: String
     let createdAt: String
     let updatedAt: String
+}
+
+struct NewThreadResponse: Decodable {
+    let id: String
 }
