@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 from ceridwen.ollama_client import stream_chat
 from ceridwen.tools import execute_tool
@@ -7,6 +8,8 @@ MAX_TURNS = 5
 
 
 def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
+    system_prompt = (Path(__file__).parent / "prompts" / "system.md").read_text()
+    system_message = {"role": "system", "content": system_prompt}
     for _ in range(MAX_TURNS):                                   # one pass = one model call
         # fresh "notepads" for THIS model call
         # (what text did it say? what tools did it ask for?)
@@ -14,7 +17,7 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
         content = ""
         tool_calls = []
 
-        for event in stream_chat(model, messages):
+        for event in stream_chat(model, [system_message, *messages]):
             yield event                           # pass it straight on: the app keeps streaming
             # then peek at the event's type and note down anything you need
             match event["type"]:

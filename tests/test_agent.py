@@ -29,19 +29,23 @@ class FakeModel:
     """Stands in for stream_chat: one scripted list of events per model call.
 
     It records a *copy* of the messages it was sent each time, because
-    run_agent keeps appending to the same list afterwards. Calling it more
+    run_agent keeps appending to the same list afterwards. The system
+    message (always first) is recorded separately in system_prompts, so
+    `seen` holds just the conversation. Calling it more
     times than scripted fails the test, which catches runaway loops.
     """
 
     def __init__(self, *turns: list[dict]):
         self.turns = list(turns)
         self.seen: list[list[dict]] = []
+        self.system_prompts: list[dict] = []
 
     def __call__(self, model: str, messages: list[dict]):
         assert model == MODEL
         if not self.turns:
             pytest.fail("run_agent called the model more times than expected")
-        self.seen.append(copy.deepcopy(messages))
+        self.system_prompts.append(copy.deepcopy(messages[0]))
+        self.seen.append(copy.deepcopy(messages[1:]))  # conversation only, system message stripped
         return iter(self.turns.pop(0))
 
 
@@ -290,3 +294,55 @@ def test_no_error_event_when_answered_within_limit():
         events = run(fake, [{"role": "user", "content": "Time?"}])
 
     assert all(e["type"] != "error" for e in events)
+
+
+# --- system prompt ---
+
+def test_system_prompt_is_sent_first_on_every_model_call():
+    fake = FakeModel([tool_call("current_time"), DONE], [text("04:14."), DONE])
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        run(fake, [{"role": "user", "content": "Time?"}])
+
+    assert len(fake.system_prompts) == 2
+    for system in fake.system_prompts:
+        assert system["role"] == "system"
+        assert "Ceridwen" in system["content"]
+
+
+def test_system_prompt_is_not_stored_in_the_conversation():
+    fake = FakeModel([tool_call("current_time"), DONE], [text("04:14."), DONE])
+    messages = [{"role": "user", "content": "Time?"}]
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        run(fake, messages)
+
+    assert all(m["role"] != "system" for m in messages)
+
+
+def test_system_prompt_comes_from_system_md():
+    from pathlib import Path
+
+    import ceridwen.agent
+
+    prompt_file = Path(ceridwen.agent.__file__).parent / "prompts" / "system.md"
+    fake = FakeModel([text("Hi"), DONE])
+
+    run(fake, [{"role": "user", "content": "Hi"}])
+
+    assert fake.system_prompts[0]["content"] == prompt_file.read_text()
+
+
+def test_system_prompt_is_reread_on_each_request(monkeypatch):
+    # Edits to system.md must apply from the next message, without a restart.
+    import ceridwen.agent
+
+    prompts = iter(["You are version one.", "You are version two."])
+    monkeypatch.setattr(ceridwen.agent.Path, "read_text", lambda self, *a, **kw: next(prompts))
+
+    first, second = FakeModel([text("Hi"), DONE]), FakeModel([text("Hi"), DONE])
+    run(first, [{"role": "user", "content": "Hi"}])
+    run(second, [{"role": "user", "content": "Hi"}])
+
+    assert first.system_prompts[0]["content"] == "You are version one."
+    assert second.system_prompts[0]["content"] == "You are version two."
