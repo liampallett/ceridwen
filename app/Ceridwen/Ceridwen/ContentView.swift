@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var selectedThreadID: String?
     @State private var messages: [Message] = []
     @State private var connectionState: ConnectionState = .checking
+    @State private var draft = ""
     
     var body: some View {
         Group {
@@ -35,7 +36,16 @@ struct ContentView: View {
                     }
                 } detail: {
                     if selectedThreadID != nil {
-                        MessageListView(messages: messages)
+                        VStack(spacing: 0) {
+                            MessageListView(messages: messages)
+                            HStack {
+                                TextField("Reply", text: $draft)
+                                    .onSubmit { Task { await send() } }
+                                Button("Send") { Task { await send() } }
+                                    .disabled(draft.isEmpty)
+                            }
+                            .padding()
+                        }
                     } else {
                         Text("Pick a thread")
                     }
@@ -82,6 +92,31 @@ struct ContentView: View {
             }
         } catch {
             connectionState = .unreachable
+        }
+    }
+    
+    func send() async {
+        guard let selectedThreadID else {
+            return
+        }
+        
+        do {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:8000/chat")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let encoder = JSONEncoder()
+            encoder.keyEncodingStrategy = .convertToSnakeCase
+            request.httpBody = try encoder.encode(ChatRequestBody(model: "gemma4:12b-mlx", message: draft, threadId: selectedThreadID))
+            
+            draft = ""
+            
+            let (bytes, _) = try await URLSession.shared.bytes(for: request)
+            for try await line in bytes.lines {
+                print(line)
+            }
+        } catch {
+            print("[ceridwen] send failed:", error)
         }
     }
 }
