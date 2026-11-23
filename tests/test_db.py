@@ -4,10 +4,18 @@ from ceridwen import db
 
 ROUND_TRIP = [
     {"role": "user", "content": "What time is it?"},
-    {"role": "assistant", "content": "", "tool_calls": [
-        {"id": "call_abc", "function": {"name": "current_time", "arguments": {}}}
-    ]},
-    {"role": "tool", "content": "2026-11-23T06:23:00+00:00", "tool_name": "current_time"},
+    {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"id": "call_abc", "function": {"name": "current_time", "arguments": {}}}
+        ],
+    },
+    {
+        "role": "tool",
+        "content": "2026-11-23T06:23:00+00:00",
+        "tool_name": "current_time",
+    },
     {"role": "assistant", "content": "It's 06:23 UTC."},
 ]
 
@@ -22,6 +30,7 @@ def path(tmp_path):
 
 # --- setup ---
 
+
 def test_init_db_creates_missing_folders(tmp_path):
     p = tmp_path / "does" / "not" / "exist" / "test.db"
     db.init_db(p)
@@ -33,6 +42,7 @@ def test_init_db_is_safe_to_run_twice(path):
 
 
 # --- threads ---
+
 
 def test_new_database_has_no_threads(path):
     assert db.list_threads(path) == []
@@ -66,11 +76,12 @@ def test_delete_thread_removes_it_and_its_messages(path):
     db.delete_thread(path, gone)
 
     assert [t["id"] for t in db.list_threads(path)] == [keep]
-    assert db.get_messages(path, gone) == []         # cascade took the messages too
+    assert db.get_messages(path, gone) == []  # cascade took the messages too
     assert db.get_messages(path, keep) == [{"role": "user", "content": "stay"}]
 
 
 # --- messages ---
+
 
 def test_new_thread_has_no_messages(path):
     assert db.get_messages(path, db.create_thread(path)) == []
@@ -88,12 +99,14 @@ def test_plain_messages_have_no_optional_keys(path):
     db.add_messages(path, thread, [{"role": "user", "content": "Hi"}])
 
     [message] = db.get_messages(path, thread)
-    assert set(message) == {"role", "content"}       # no tool_calls/tool_name keys at all
+    assert set(message) == {"role", "content"}  # no tool_calls/tool_name keys at all
 
 
 def test_empty_content_stays_an_empty_string(path):
     thread = db.create_thread(path)
-    db.add_messages(path, thread, [ROUND_TRIP[1]])   # assistant tool call with content ""
+    db.add_messages(
+        path, thread, [ROUND_TRIP[1]]
+    )  # assistant tool call with content ""
 
     assert db.get_messages(path, thread)[0]["content"] == ""
 
@@ -110,7 +123,13 @@ def test_messages_keep_their_order_across_several_saves(path):
     for i in range(5):
         db.add_messages(path, thread, [{"role": "user", "content": str(i)}])
 
-    assert [m["content"] for m in db.get_messages(path, thread)] == ["0", "1", "2", "3", "4"]
+    assert [m["content"] for m in db.get_messages(path, thread)] == [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+    ]
 
 
 def test_messages_are_kept_per_thread(path):
@@ -135,23 +154,32 @@ def test_message_missing_role_saves_nothing(path):
     thread = db.create_thread(path)
 
     with pytest.raises(KeyError):
-        db.add_messages(path, thread, [{"role": "user", "content": "ok"}, {"content": "no role"}])
+        db.add_messages(
+            path, thread, [{"role": "user", "content": "ok"}, {"content": "no role"}]
+        )
 
-    assert db.get_messages(path, thread) == []       # all or nothing
+    assert db.get_messages(path, thread) == []  # all or nothing
 
 
 def test_messages_for_unknown_thread_are_rejected(path):
     import sqlite3
 
-    with pytest.raises(sqlite3.IntegrityError):      # foreign keys are actually on
+    with pytest.raises(sqlite3.IntegrityError):  # foreign keys are actually on
         db.add_messages(path, "no-such-thread", [{"role": "user", "content": "Hi"}])
 
 
 def test_missing_content_comes_back_as_empty_string(path):
     # Ollama expects content to be a string, never None.
     thread = db.create_thread(path)
-    db.add_messages(path, thread, [{"role": "assistant", "tool_calls": [
-        {"function": {"name": "current_time", "arguments": {}}}
-    ]}])
+    db.add_messages(
+        path,
+        thread,
+        [
+            {
+                "role": "assistant",
+                "tool_calls": [{"function": {"name": "current_time", "arguments": {}}}],
+            }
+        ],
+    )
 
     assert db.get_messages(path, thread)[0]["content"] == ""

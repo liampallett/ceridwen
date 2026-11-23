@@ -1,11 +1,10 @@
+import copy
 import json
-from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
-from ceridwen.main import app
-
-client = TestClient(app)
+from ceridwen import main
 
 MODEL = "gemma4:12b-mlx"
 
@@ -20,39 +19,176 @@ EVENTS = [
 ]
 
 
-def test_health():
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+class FakeAgent:
+    """Stands in for run_agent.
+
+    Like the real one, it grows the messages list in place (here: one
+    assistant reply) and yields events. It records a copy of what it was
+    given each time, so tests can check the history the agent saw.
+    """
+
+    def __init__(self, reply: str = "Hello", events: list[dict] | None = None):
+        self.reply = reply
+        self.events = events if events is not None else EVENTS
+        self.seen: list[list[dict]] = []
+
+    def __call__(self, model: str, messages: list[dict]):
+        assert model == MODEL
+        self.seen.append(copy.deepcopy(messages))
+        messages.append({"role": "assistant", "content": self.reply})
+        yield from self.events
 
 
-def test_streaming_endpoint_sends_ndjson():
-    with patch("ceridwen.main.run_agent") as mock_stream:
-        mock_stream.return_value = iter(EVENTS)
-
-        r = client.post("/chat/stream", json={"model": MODEL, "message": "Hello"})
-
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("application/x-ndjson")
-        # The endpoint wraps the single message into a conversation list.
-        mock_stream.assert_called_once_with(
-            MODEL, [{"role": "user", "content": "Hello"}]
-        )
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    # Point the app at a throwaway database, then start it. Using TestClient
+    # as a context manager runs the lifespan, so init_db creates the tables.
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "test.db")
+    with TestClient(main.app) as c:
+        yield c
 
 
-def test_streaming_endpoint_one_valid_json_object_per_line():
-    with patch("ceridwen.main.run_agent") as mock_stream:
-        mock_stream.return_value = iter(EVENTS)
-
-        r = client.post("/chat/stream", json={"model": MODEL, "message": "Hello"})
-
-        # Every event ends with exactly one newline; newlines inside the
-        # data (the thinking event) must be escaped, not split across lines.
-        assert r.text.endswith("\n")
-        lines = r.text.splitlines()
-        assert [json.loads(line) for line in lines] == EVENTS
+@pytest.fixture
+def agent(monkeypatch):
+    fake = FakeAgent()
+    monkeypatch.setattr(main, "run_agent", fake)
+    return fake
 
 
-def test_streaming_endpoint_rejects_missing_fields():
-    r = client.post("/chat/stream", json={"model": MODEL})
+def new_thread(client) -> str:
+    return client.post("/threads").json()["id"]
+
+
+def chat(client, thread_id: str, message: str):
+    return client.post(
+        "/chat", json={"model": MODEL, "message": message, "thread_id": thread_id}
+    )
+
+
+# --- threads ---
+
+
+def test_no_threads_to_start_with(client):
+    assert client.get("/threads").json() == []
+
+
+def test_create_thread_returns_id_and_it_is_listed(client):
+    r = client.post("/threads")
+
+    assert r.status_code == 200
+    thread_id = r.json()["id"]
+    assert [t["id"] for t in client.get("/threads").json()] == [thread_id]
+
+
+def test_new_thread_has_no_messages(client):
+    assert client.get(f"/threads/{new_thread(client)}/messages").json() == []
+
+
+def test_messages_for_unknown_thread_is_404(client):
+    assert client.get("/threads/nonsense/messages").status_code == 404
+
+
+def test_delete_thread(client):
+    thread_id = new_thread(client)
+
+    assert client.delete(f"/threads/{thread_id}").status_code == 200
+    assert client.get("/threads").json() == []
+    assert client.get(f"/threads/{thread_id}/messages").status_code == 404
+
+
+def test_delete_unknown_thread_is_404(client):
+    assert client.delete("/threads/nonsense").status_code == 404
+
+
+# --- chat: request handling ---
+
+
+def test_chat_unknown_thread_is_404_and_agent_never_runs(client, agent):
+    r = chat(client, "nonsense", "Hello")
+
+    assert r.status_code == 404
+    assert agent.seen == []
+
+
+def test_chat_requires_thread_id(client, agent):
+    r = client.post("/chat", json={"model": MODEL, "message": "Hello"})
     assert r.status_code == 422
+
+
+# --- chat: streaming ---
+
+
+def test_chat_streams_ndjson(client, agent):
+    r = chat(client, new_thread(client), "Hello")
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/x-ndjson")
+
+
+def test_chat_one_valid_json_object_per_line(client, agent):
+    r = chat(client, new_thread(client), "Hello")
+
+    # Newlines inside the data (the thinking event) must be escaped,
+    # not split across lines.
+    assert r.text.endswith("\n")
+    assert [json.loads(line) for line in r.text.splitlines()] == EVENTS
+
+
+# --- chat: history and saving ---
+
+
+def test_first_message_reaches_agent_on_its_own(client, agent):
+    chat(client, new_thread(client), "Hello")
+
+    assert agent.seen == [[{"role": "user", "content": "Hello"}]]
+
+
+def test_chat_saves_user_message_and_agent_reply(client, agent):
+    thread_id = new_thread(client)
+
+    chat(client, thread_id, "Hello")
+
+    assert client.get(f"/threads/{thread_id}/messages").json() == [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hello"},
+    ]
+
+
+def test_second_message_sees_the_first_in_order(client, agent):
+    thread_id = new_thread(client)
+
+    chat(client, thread_id, "First")
+    chat(client, thread_id, "Second")
+
+    # history first, newest message last
+    assert agent.seen[1] == [
+        {"role": "user", "content": "First"},
+        {"role": "assistant", "content": "Hello"},
+        {"role": "user", "content": "Second"},
+    ]
+
+
+def test_history_is_not_saved_twice(client, agent):
+    thread_id = new_thread(client)
+
+    chat(client, thread_id, "First")
+    chat(client, thread_id, "Second")
+
+    assert len(client.get(f"/threads/{thread_id}/messages").json()) == 4
+
+
+def test_threads_do_not_share_history(client, agent):
+    a, b = new_thread(client), new_thread(client)
+
+    chat(client, a, "For A")
+    chat(client, b, "For B")
+
+    assert agent.seen[1] == [{"role": "user", "content": "For B"}]
+
+
+def test_chatting_moves_thread_to_top_of_list(client, agent):
+    old, new = new_thread(client), new_thread(client)
+
+    chat(client, old, "Bump")
+
+    assert [t["id"] for t in client.get("/threads").json()] == [old, new]

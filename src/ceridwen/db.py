@@ -4,7 +4,6 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "database" / "ceridwen.db"
 
 def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,16 +41,30 @@ def init_db(path: Path) -> None:
         """)
 
 
+def thread_exists(path: Path, thread_id: str) -> bool:
+    conn = _connect(path)
+    with conn:
+        cur = conn.execute(
+            """
+        SELECT 1 FROM threads WHERE id = ?
+        """,
+            (thread_id,),
+        )
+        return cur.fetchone() is not None
+
+
 def create_thread(path: Path) -> str:
     conn = _connect(path)
     with conn:
         thread_id = uuid.uuid4().hex
         time = datetime.now(UTC).isoformat()
 
-        conn.execute("""
+        conn.execute(
+            """
         INSERT INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)
         """,
-                           (thread_id, "", time, time))
+            (thread_id, "", time, time),
+        )
         return thread_id
 
 
@@ -68,9 +81,12 @@ def get_messages(path: Path, thread_id: str) -> list[dict]:
     conn = _connect(path)
     with conn:
         messages = []
-        cur = conn.execute("""
+        cur = conn.execute(
+            """
         SELECT role, content, tool_calls, tool_name FROM messages WHERE thread_id = ? ORDER BY id
-        """, (thread_id,))
+        """,
+            (thread_id,),
+        )
         rows = cur.fetchall()
         for row in rows:
             message = {"role": row["role"], "content": row["content"] or ""}
@@ -87,27 +103,40 @@ def add_messages(path: Path, thread_id: str, messages: list[dict]) -> None:
     with conn:
         time = datetime.now(UTC).isoformat()
         list_of_tuples = [
-            (thread_id,
-             message["role"],
-             message.get("content"),
-             message.get("thinking"),
-             json.dumps(message.get("tool_calls")) if "tool_calls" in message else None,
-             message.get("tool_name"),
-             time,
-             ) for message in messages]
+            (
+                thread_id,
+                message["role"],
+                message.get("content"),
+                message.get("thinking"),
+                json.dumps(message.get("tool_calls"))
+                if "tool_calls" in message
+                else None,
+                message.get("tool_name"),
+                time,
+            )
+            for message in messages
+        ]
 
-        conn.executemany("""
+        conn.executemany(
+            """
         INSERT INTO messages (thread_id, role, content, thinking, tool_calls, tool_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, list_of_tuples)
+        """,
+            list_of_tuples,
+        )
 
-        conn.execute("""
+        conn.execute(
+            """
         UPDATE threads SET updated_at = ? WHERE id = ?
-        """, (time, thread_id))
+        """,
+            (time, thread_id),
+        )
 
 
 def delete_thread(path: Path, thread_id: str) -> None:
     conn = _connect(path)
     with conn:
-        conn.execute("""
+        conn.execute(
+            """
         DELETE FROM threads WHERE id = ?""",
-                     (thread_id,))
+            (thread_id,),
+        )

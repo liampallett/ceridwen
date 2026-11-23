@@ -2,7 +2,7 @@
 
 Ceridwen is a local assistant built with Python, with a native Swift app planned. Bring your own model and keep conversation state on your computer. Its name comes from the Welsh goddess of inspiration and knowledge.
 
-> **Status:** early rebuild (v2). The backend streams responses from a local model and can call tools in a loop. Conversation history, memory, skills and the SwiftUI app are planned but not built yet.
+> **Status:** early rebuild (v2). The backend streams responses from a local model, calls tools in a loop, and saves conversations as threads in SQLite. Ghost mode, memory, skills and the SwiftUI app are planned but not built yet.
 
 ---
 
@@ -16,21 +16,34 @@ v2 is a ground-up rebuild. The first version was a LangChain terminal app that g
 
 # How It Works
 
-The backend has four small modules, each with one job:
+The backend has five small modules, each with one job:
 
 | Module | Job |
 | --- | --- |
-| `main.py` | HTTP. Receives a message, streams events back as NDJSON. |
+| `main.py` | HTTP. Thread endpoints, and the chat endpoint that streams events back as NDJSON. |
 | `agent.py` | The agent loop. Calls the model, runs any tools it asks for, calls it again until it answers. |
 | `ollama_client.py` | Talks to Ollama. Turns Ollama's raw stream into Ceridwen's own events. |
 | `tools.py` | The tool registry. Describes tools to the model and validates its arguments before running them. |
+| `db.py` | SQLite storage for threads and their messages. |
 
-A request flows like this:
+A chat request flows like this:
 
-1. `POST /chat/stream` receives `{"model": ..., "message": ...}`.
-2. The agent sends the conversation to Ollama, with the system prompt (`prompts/system.md`, re-read on every request) placed in front.
-3. As the model streams, every event is passed straight through to the client.
-4. If the model asked for a tool, the agent runs it, adds the call and its result to the conversation, and calls the model again. This repeats until the model answers in plain text, or stops after `MAX_TURNS` model calls.
+1. `POST /chat` receives `{"model": ..., "message": ..., "thread_id": ...}`.
+2. The thread's history is loaded from SQLite and the new message is appended.
+3. The agent sends the conversation to Ollama, with the system prompt (`prompts/system.md`, re-read on every request) placed in front.
+4. As the model streams, every event is passed straight through to the client.
+5. If the model asked for a tool, the agent runs it, adds the call and its result to the conversation, and calls the model again. This repeats until the model answers in plain text, or stops after `MAX_TURNS` model calls.
+6. Once the stream ends, everything new this turn (the user's message, any tool calls and results, and the reply) is saved to the thread.
+
+The API:
+
+| Endpoint | Does |
+| --- | --- |
+| `POST /threads` | Create a thread, returns `{"id": ...}` |
+| `GET /threads` | List threads, most recently active first |
+| `GET /threads/{id}/messages` | A thread's messages, oldest first |
+| `DELETE /threads/{id}` | Delete a thread and its messages |
+| `POST /chat` | Send a message to a thread, streams events back |
 
 Every line of the response is one JSON event:
 
@@ -59,7 +72,11 @@ Every line of the response is one JSON event:
 
 **Tool failures go back to the model, not up the stack.** Any exception from a tool is caught and returned as the tool's result, so the model can see what went wrong and either retry or tell the user. This is a deliberately broad catch at an untrusted boundary. The error is also logged, and the `tool_result` event is marked `success: false` so the app can show it.
 
-**The system prompt is added on every call, never stored in the conversation.** When threads are saved, they'll hold only the real conversation, so editing the prompt changes every thread's behaviour, not just new ones.
+**The backend owns conversation history.** The client sends only the new message and a thread ID, and the backend loads the rest from SQLite. Tool calls and results live in the backend's loop anyway, so keeping history there keeps the app a thin display, and any future client gets the same behaviour for free.
+
+**Plain `sqlite3`, rather than an ORM.** Two tables don't need SQLAlchemy, and writing the SQL by hand keeps it visible, in the same spirit as calling Ollama directly. Messages are stored one row per turn (not one per streamed event), in the same shape the agent uses, so a loaded thread can go straight back to the model. Tool calls are stored as JSON text, since SQLite has no JSON type.
+
+**The system prompt is added on every call, never stored in the conversation.** Saved threads hold only the real conversation, so editing the prompt changes every thread's behaviour, not just new ones.
 
 **Strict argument validation.** Each tool declares a Pydantic model with `extra="forbid"` and strict types. That same model generates the JSON Schema the LLM sees, so the description and the validation can't drift apart. Small models do invent arguments, so this matters.
 
@@ -67,17 +84,20 @@ Every line of the response is one JSON event:
 
 # Tech Stack
 
-- Languages used:
-- Frameworks/libraries:
-- Tools and platforms:
+- **Languages:** Python 3.14 (Swift planned)
+- **Frameworks/libraries:** FastAPI, Uvicorn, httpx, Pydantic, SQLite (`sqlite3`)
+- **Tools and platforms:** Ollama (developed against `gemma4:12b-mlx`), uv, pytest, ruff
 
 ---
 
 # What I Learned
 
-- What new skills did I gain?
-- What concepts became clearer through building this?
-- What surprised me during development?
+- **An LLM has no memory.** "Continuing a conversation" means resending the whole history every time. Once that clicked, it was obvious why history storage belongs in the backend, and why a thread is really just a list of messages.
+- **Generators are lazy.** Nothing inside a generator runs, errors included, until something iterates it. That shaped the agent loop (a generator wrapped around another generator), how its tests are written, and why saving a turn has to happen *after* the stream's last `yield`.
+- **What tool calling actually looks like on the wire.** Not a magic function call: the model emits a structured request, my code runs the tool, and the result goes back as another message. Streaming means rebuilding the assistant's message from pieces as they arrive.
+- **Once a streamed response starts, errors become data.** The `200 OK` has already been sent, so a failure partway through can only be reported as an event in the stream.
+- **Small models are confidently wrong about tools.** Gemma happily called an `add` tool that didn't exist, with arguments it made up. Validating everything the model sends isn't paranoia.
+- **Bugs hide until something depends on the data.** The agent never added its final reply to the conversation, and nothing noticed until threads started saving it.
 
 ---
 
@@ -103,13 +123,18 @@ ollama pull gemma4:12b-mlx   # or any tool-capable model
 uv run uvicorn ceridwen.main:app --reload
 ```
 
-**Send a message**
+**Start a thread and send a message**
 
 ```bash
-curl -N http://127.0.0.1:8000/chat/stream \
+curl -X POST http://127.0.0.1:8000/threads
+# -> {"id": "<thread-id>"}
+
+curl -N http://127.0.0.1:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"model": "gemma4:12b-mlx", "message": "What time is it?"}'
+  -d '{"model": "gemma4:12b-mlx", "message": "What time is it?", "thread_id": "<thread-id>"}'
 ```
+
+The database is created automatically at `src/ceridwen/database/ceridwen.db` on first run.
 
 **Run the tests and linter**
 
@@ -122,15 +147,34 @@ uv run ruff check .
 
 # Project Structure
 
+```
+src/ceridwen/
+├── main.py            # FastAPI app: thread endpoints and /chat
+├── agent.py           # agent loop: model calls, tool execution, turn limit
+├── ollama_client.py   # Ollama HTTP client and event translation
+├── tools.py           # tool registry, schemas and validation
+├── db.py              # SQLite storage for threads and messages
+└── prompts/
+    └── system.md      # system prompt, re-read on every request
+tests/                 # one test file per module; Ollama is mocked, databases are temporary
+```
+
 # Future Improvements
 
-- What features would I add next?
-- What parts could be improved or refactored?
-- What ideas did I not have time to implement?
+- **SwiftUI app:** native macOS client with a thread sidebar, streamed thinking, tool activity and LaTeX rendering.
+- **Ghost mode:** chats that are never written to the database.
+- **Thread titles:** auto-generated from the first message, plus renaming.
+- **Memory and skills:** stored in a central data folder rather than per-directory, which was v1's bug.
+- **More tools:** YouTube transcripts and web search first.
+- **Saving interrupted turns:** if the client disconnects mid-stream, nothing from that turn is saved yet.
+- **Database location:** move it to `~/Library/Application Support/Ceridwen/` rather than inside the package.
+- **Editing the system prompt from the app**, with any model-proposed changes shown as a diff for approval.
+- **Smarter turn limit:** a final no-tools call so the model answers with what it has, rather than stopping with an error.
+- **Time-to-first-token and tokens-per-second metrics.**
 
 ---
 
 ## GenAI Disclosure
 
-The GenAI tool Claude Opus 5.5 was used during the development of this project for assistance and bug finding. No code
-was written by the LLM.
+Claude Opus 5.5 was used for guidance, code review and debugging. All application code in src/ was written by me. The
+test suite and parts of this README were written by Claude and reviewed by me.
