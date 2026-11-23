@@ -1,3 +1,8 @@
+"""FastAPI app: thread management endpoints and the streaming chat endpoint.
+
+Run with: uv run uvicorn ceridwen.main:app --reload
+"""
+
 import json
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
@@ -10,15 +15,12 @@ from pydantic import BaseModel
 from ceridwen import db
 from ceridwen.agent import run_agent
 
-"""
-Run with: uv run uvicorn ceridwen.main:app --reload
-"""
-
 DB_PATH = Path(__file__).parent / "database" / "ceridwen.db"
 
 
 @asynccontextmanager
 async def lifespan(_fast_api_app: FastAPI):
+    """Create the database tables when the server starts."""
     db.init_db(DB_PATH)
     yield
 
@@ -27,6 +29,8 @@ app = FastAPI(lifespan=lifespan)
 
 
 class ChatRequest(BaseModel):
+    """Body of a ``POST /chat`` request."""
+
     model: str
     message: str
     thread_id: str
@@ -34,6 +38,15 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 def chat(request: ChatRequest):
+    """Send a message to a thread and stream the agent's reply as NDJSON.
+
+    The thread's history is loaded, the new message appended, and the agent's
+    events streamed back one JSON object per line. Once the stream ends, the
+    new message and everything the agent added are saved to the thread.
+
+    Raises:
+        HTTPException: 404 if the thread doesn't exist.
+    """
     if not db.thread_exists(DB_PATH, request.thread_id):
         raise HTTPException(status_code=404, detail="Thread not found")
 
@@ -50,6 +63,20 @@ def chat(request: ChatRequest):
 def _stream_turn(
     model: str, messages: list[dict], thread_id: str, start: int
 ) -> Iterator[str]:
+    """Stream the agent's events as NDJSON lines, then save the turn.
+
+    Saving happens after the last event, so if the client disconnects
+    mid-stream, nothing from this turn is saved.
+
+    Args:
+        model: Name of the Ollama model to use.
+        messages: The thread's history plus the new user message.
+        thread_id: Thread to save the new messages to.
+        start: Index in ``messages`` where this turn's messages begin.
+
+    Yields:
+        One JSON-encoded event per line.
+    """
     for event in run_agent(model, messages):
         yield f"{json.dumps(event)}\n"
     db.add_messages(DB_PATH, thread_id, messages[start:])
@@ -57,17 +84,20 @@ def _stream_turn(
 
 @app.post("/threads")
 def add_thread():
+    """Create a thread and return its ID."""
     thread_id = db.create_thread(DB_PATH)
     return {"id": thread_id}
 
 
 @app.get("/threads")
 def get_threads():
+    """List all threads, most recently updated first."""
     return db.list_threads(DB_PATH)
 
 
 @app.get("/threads/{thread_id}/messages")
 def get_messages_from_thread(thread_id: str):
+    """Return a thread's messages, oldest first. 404 if it doesn't exist."""
     if not db.thread_exists(DB_PATH, thread_id):
         raise HTTPException(status_code=404, detail="Thread not found")
     return db.get_messages(DB_PATH, thread_id)
@@ -75,6 +105,7 @@ def get_messages_from_thread(thread_id: str):
 
 @app.delete("/threads/{thread_id}")
 def delete_thread(thread_id: str):
+    """Delete a thread and its messages. 404 if it doesn't exist."""
     if not db.thread_exists(DB_PATH, thread_id):
         raise HTTPException(status_code=404, detail="Thread not found")
     db.delete_thread(DB_PATH, thread_id)

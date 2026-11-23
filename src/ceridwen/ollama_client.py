@@ -1,3 +1,8 @@
+"""Ollama HTTP client: sends a conversation and translates the stream into events.
+
+This is the only module that knows Ollama's wire format.
+"""
+
 import json
 from collections.abc import Iterator
 
@@ -7,6 +12,32 @@ from ceridwen.tools import build_tools
 
 
 def stream_chat(model: str, messages: list[dict]) -> Iterator[dict]:
+    """Send a conversation to Ollama and yield its response as events.
+
+    Makes one model call with every registered tool available. Ollama's
+    newline-delimited chunks are translated into Ceridwen's own events, each
+    a dict with ``type`` and ``data``:
+
+    - ``thinking``: a chunk of the model's reasoning (str)
+    - ``content``: a chunk of the answer (str)
+    - ``tool_call``: one requested call, ``{id, name, arguments}``; ``id``
+      is ``None`` if Ollama didn't send one
+    - ``done``: metrics for the call, ``{done_reason, total_duration,
+      eval_count, prompt_eval_count}``; ``total_duration`` is in nanoseconds
+
+    Nothing happens until the generator is iterated, including connection
+    errors.
+
+    Args:
+        model: Name of the Ollama model.
+        messages: The full conversation, system message included.
+
+    Yields:
+        Events in the order Ollama sends them.
+
+    Raises:
+        httpx.HTTPError: Ollama couldn't be reached or returned an error.
+    """
     with httpx.stream(
         "POST",
         "http://127.0.0.1:11434/api/chat",

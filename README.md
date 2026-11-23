@@ -139,8 +139,7 @@ The database is created automatically at `src/ceridwen/database/ceridwen.db` on 
 **Run the tests and linter**
 
 ```bash
-uv run pytest
-uv run ruff check .
+uv run ruff check . --fix && uv run ruff format . && uv run pytest
 ```
 
 ---

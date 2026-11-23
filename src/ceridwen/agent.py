@@ -1,13 +1,39 @@
+"""The agent loop: call the model, run the tools it asks for, repeat until done."""
+
 from collections.abc import Iterator
 from pathlib import Path
 
 from ceridwen.ollama_client import stream_chat
 from ceridwen.tools import execute_tool
 
-MAX_TURNS = 5
+MAX_TURNS = 5  # maximum model calls per user message before giving up
 
 
 def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
+    """Run one user turn through the model, executing tool calls as they come.
+
+    Each pass makes one model call and streams its events straight through.
+    If the model asked for tools, they are run, the call and its results are
+    added to the conversation, and the model is called again. The loop ends
+    when the model replies without calling a tool, or after ``MAX_TURNS``
+    passes.
+
+    The system prompt is read from ``prompts/system.md`` on every call and
+    placed in front of the conversation for each model call, but is never
+    added to ``messages``, so it is never saved with a thread.
+
+    Args:
+        model: Name of the Ollama model to use.
+        messages: The conversation so far, in Ollama's message format. It is
+            modified in place: every assistant message, tool call and tool
+            result from this turn is appended, so afterwards it holds the
+            full conversation.
+
+    Yields:
+        Events from ``stream_chat`` as they arrive, plus a ``tool_result``
+        event after each tool runs, and an ``error`` event if the turn limit
+        is reached.
+    """
     system_prompt = (Path(__file__).parent / "prompts" / "system.md").read_text()
     system_message = {"role": "system", "content": system_prompt}
     for _ in range(MAX_TURNS):  # one pass = one model call
