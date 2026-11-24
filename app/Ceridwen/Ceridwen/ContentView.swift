@@ -155,16 +155,22 @@ struct ContentView: View {
                 switch event{
                 case .content(let text):
                     selectedThreadMessageHistory[selectedThreadMessageHistory.count - 1].content += text
+                case .thinking(let thinkingText):
+                    selectedThreadMessageHistory[selectedThreadMessageHistory.count - 1].thinking += thinkingText
+                case .toolCall(let toolCall):
+                    selectedThreadMessageHistory[selectedThreadMessageHistory.count - 1].toolCalls.append(toolCall)
+                case .toolResult(let toolResult):
+                    selectedThreadMessageHistory.append(Message(role: "tool", content: toolResult.result, toolName: toolResult.name))
+                    selectedThreadMessageHistory.append(Message(role: "assistant", content: "", toolName: nil))
                 case .title(let newTitle):
                     if let index = threads.firstIndex(where: { $0.id == selectedThreadID }) {
                         threads[index].title = newTitle
                     }
-                case .thinking(let thinkingText):
-                    selectedThreadMessageHistory[selectedThreadMessageHistory.count - 1].thinking += thinkingText
                 default:
                     break
                 }
             }
+            print(selectedThreadMessageHistory.map { "\($0.role): \($0.content)" })
         } catch {
             print("[ceridwen] send failed:", error)
         }

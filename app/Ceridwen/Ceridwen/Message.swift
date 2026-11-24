@@ -13,6 +13,7 @@ struct Message: Decodable, Identifiable {
     var content: String
     var thinking: String = ""
     let toolName: String?
+    var toolCalls: [ToolCall] = []
     
     enum CodingKeys: String, CodingKey {
         case role
