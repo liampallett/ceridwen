@@ -1,6 +1,7 @@
 """The agent loop: call the model, run the tools it asks for, repeat until done."""
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ceridwen.ollama_client import stream_chat
@@ -35,7 +36,10 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
         is reached.
     """
     system_prompt = (Path(__file__).parent / "prompts" / "system.md").read_text()
-    system_message = {"role": "system", "content": system_prompt}
+    system_message = {
+        "role": "system",
+        "content": system_prompt.replace("{date}", datetime.now(UTC).isoformat()),
+    }
     for _ in range(MAX_TURNS):  # one pass = one model call
         # fresh "notepads" for THIS model call
         # (what text did it say? what tools did it ask for?)

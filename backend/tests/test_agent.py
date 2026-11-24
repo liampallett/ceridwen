@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -391,17 +392,62 @@ def test_system_prompt_is_not_stored_in_the_conversation():
     assert all(m["role"] != "system" for m in messages)
 
 
-def test_system_prompt_comes_from_system_md():
+class FrozenDatetime:
+    """Stand-in for datetime in ceridwen.agent, so the date in the prompt is known."""
+
+    @staticmethod
+    def now(tz=None):
+        return datetime(2026, 11, 24, 15, 0, tzinfo=tz)
+
+
+FROZEN_DATE = "2026-11-24T15:00:00+00:00"
+
+
+def test_system_prompt_comes_from_system_md(monkeypatch):
     from pathlib import Path
 
     import ceridwen.agent
 
+    monkeypatch.setattr(ceridwen.agent, "datetime", FrozenDatetime)
     prompt_file = Path(ceridwen.agent.__file__).parent / "prompts" / "system.md"
     fake = FakeModel([text("Hi"), DONE])
 
     run(fake, [{"role": "user", "content": "Hi"}])
 
-    assert fake.system_prompts[0]["content"] == prompt_file.read_text()
+    expected = prompt_file.read_text().replace("{date}", FROZEN_DATE)
+    assert fake.system_prompts[0]["content"] == expected
+
+
+def test_system_prompt_has_todays_date_filled_in(monkeypatch):
+    import ceridwen.agent
+
+    monkeypatch.setattr(ceridwen.agent, "datetime", FrozenDatetime)
+    fake = FakeModel([text("Hi"), DONE])
+
+    run(fake, [{"role": "user", "content": "Hi"}])
+
+    content = fake.system_prompts[0]["content"]
+    assert FROZEN_DATE in content
+    assert "{date}" not in content
+
+
+def test_other_braces_in_system_prompt_are_left_alone(monkeypatch):
+    # LaTeX like \frac{a}{b} must survive untouched (str.format would crash here).
+    import ceridwen.agent
+
+    monkeypatch.setattr(ceridwen.agent, "datetime", FrozenDatetime)
+    monkeypatch.setattr(
+        ceridwen.agent.Path,
+        "read_text",
+        lambda self, *a, **kw: r"Today is {date}. Write $\frac{a}{b}$ and {curly}.",
+    )
+    fake = FakeModel([text("Hi"), DONE])
+
+    run(fake, [{"role": "user", "content": "Hi"}])
+
+    assert fake.system_prompts[0]["content"] == (
+        rf"Today is {FROZEN_DATE}. Write $\frac{{a}}{{b}}$ and {{curly}}."
+    )
 
 
 def test_system_prompt_is_reread_on_each_request(monkeypatch):
