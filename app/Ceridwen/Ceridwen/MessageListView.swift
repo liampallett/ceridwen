@@ -25,14 +25,16 @@ struct MessageListView: View {
                             .foregroundStyle(.secondary)
                         if !message.thinking.isEmpty {
                             DisclosureGroup("Thinking") {
-                                StructuredText(markdown: message.thinking)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(message.thinking)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                            .padding(.bottom, 8)
                         }
                         StructuredText(markdown: message.content)
-                            .textSelection(.enabled)
+                            .textual.textSelection(.enabled)
                     }
                 }
             }
