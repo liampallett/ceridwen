@@ -26,10 +26,10 @@ struct MessageListView: View {
                         if !message.thinking.isEmpty {
                             DisclosureGroup("Thinking") {
                                 StructuredText(markdown: message.thinking)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         StructuredText(markdown: message.content)
                             .textSelection(.enabled)

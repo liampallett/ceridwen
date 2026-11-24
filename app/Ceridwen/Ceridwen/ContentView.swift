@@ -8,11 +8,18 @@
 import SwiftUI
 
 struct ContentView: View {
+    // Thread/Messages
     @State private var threads: [ChatThread] = []
     @State private var selectedThreadID: String?
-    @State private var messages: [Message] = []
+    @State private var selectedThreadMessageHistory: [Message] = []
+    @State private var replyDraft = ""
+    
+    // Model
+    @State private var models: [String] = []
+    @AppStorage("selectedModel") private var selectedModel: String = "gemma4:12b-mlx"
+    
+    // Network
     @State private var connectionState: ConnectionState = .checking
-    @State private var draft = ""
     
     var body: some View {
         Group {
@@ -45,14 +52,29 @@ struct ContentView: View {
                 } detail: {
                     if selectedThreadID != nil {
                         VStack(spacing: 0) {
-                            MessageListView(messages: messages)
+                            MessageListView(messages: selectedThreadMessageHistory)
                             HStack {
-                                TextField("Reply", text: $draft)
+                                TextField("Reply", text: $replyDraft)
                                     .onSubmit { Task { await send() } }
                                 Button("Send") { Task { await send() } }
-                                    .disabled(draft.isEmpty)
+                                    .disabled(replyDraft.isEmpty)
                             }
-                            .padding()
+                            HStack {
+                                Spacer()
+                                Menu {
+                                    Picker("Model", selection: $selectedModel) {
+                                        ForEach(models, id: \.self) { model in
+                                            Text(model).tag(model)
+                                        }
+                                    }
+                                    .pickerStyle(.inline)
+                                    .labelsHidden()          // otherwise "Pet" appears as a heading inside the menu
+                                } label: {
+                                    Text(selectedModel)
+                                }
+                                .menuStyle(.borderlessButton)
+                                .fixedSize()
+                            }
                         }
                     } else {
                         Text("Pick a thread")
@@ -65,7 +87,7 @@ struct ContentView: View {
         }
         .task(id: selectedThreadID) {
             guard let selectedThreadID else {
-                messages = []
+                selectedThreadMessageHistory = []
                 return
             }
             
@@ -74,8 +96,8 @@ struct ContentView: View {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 let decoder = JSONDecoder()
                 decoder.keyDecodingStrategy = .convertFromSnakeCase
-                messages = try decoder.decode([Message].self, from: data)
-                print(messages)
+                selectedThreadMessageHistory = try decoder.decode([Message].self, from: data)
+                print(selectedThreadMessageHistory)
             } catch {
                 print("Failed:", error)
             }
@@ -90,6 +112,11 @@ struct ContentView: View {
             let status = (response as? HTTPURLResponse)?.statusCode
             if status == 200 {
                 try await loadThreads()
+                
+                let modelsUrl = URL(string: "http://127.0.0.1:8000/models")!
+                let(data, _) = try await URLSession.shared.data(from: modelsUrl)
+                models = try JSONDecoder().decode([String].self, from: data)
+                
                 connectionState = .connected
             } else {
                 print("[ceridwen] health returned status:", status as Any)
@@ -104,12 +131,12 @@ struct ContentView: View {
     func send() async {
         let decoder = JSONDecoder()
         
-        guard let selectedThreadID, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let selectedThreadID, !replyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
         
-        messages.append(Message(role: "user", content: draft, toolName: nil))
-        messages.append(Message(role: "assistant", content: "", toolName: nil))
+        selectedThreadMessageHistory.append(Message(role: "user", content: replyDraft, toolName: nil))
+        selectedThreadMessageHistory.append(Message(role: "assistant", content: "", toolName: nil))
         
         do {
             var request = URLRequest(url: URL(string: "http://127.0.0.1:8000/chat")!)
@@ -118,22 +145,22 @@ struct ContentView: View {
             
             let encoder = JSONEncoder()
             encoder.keyEncodingStrategy = .convertToSnakeCase
-            request.httpBody = try encoder.encode(ChatRequestBody(model: "gemma4:12b-mlx", message: draft, threadId: selectedThreadID))
+            request.httpBody = try encoder.encode(ChatRequestBody(model: selectedModel, message: replyDraft, threadId: selectedThreadID))
             
-            draft = ""
+            replyDraft = ""
             
             let (bytes, _) = try await URLSession.shared.bytes(for: request)
             for try await line in bytes.lines {
                 let event = try decoder.decode(ChatEvent.self, from: Data(line.utf8))
                 switch event{
                 case .content(let text):
-                    messages[messages.count - 1].content += text
+                    selectedThreadMessageHistory[selectedThreadMessageHistory.count - 1].content += text
                 case .title(let newTitle):
                     if let index = threads.firstIndex(where: { $0.id == selectedThreadID }) {
                         threads[index].title = newTitle
                     }
                 case .thinking(let thinkingText):
-                    messages[messages.count - 1].thinking += thinkingText
+                    selectedThreadMessageHistory[selectedThreadMessageHistory.count - 1].thinking += thinkingText
                 default:
                     break
                 }
