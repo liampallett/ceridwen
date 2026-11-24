@@ -10,6 +10,16 @@ from ceridwen.tools import execute_tool
 MAX_TURNS = 5  # maximum model calls per user message before giving up
 
 
+def _without_thinking(messages: list[dict]) -> list[dict]:
+    """Return copies of ``messages`` with any ``thinking`` key removed.
+
+    Thinking is saved with each assistant message so the app can show it
+    later, but the model has no use for its old reasoning, so it is left out
+    of what gets sent back. The originals are not modified.
+    """
+    return [{k: v for k, v in m.items() if k != "thinking"} for m in messages]
+
+
 def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
     """Run one user turn through the model, executing tool calls as they come.
 
@@ -47,7 +57,7 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
         content = ""
         tool_calls = []
 
-        for event in stream_chat(model, [system_message, *messages]):
+        for event in stream_chat(model, [system_message, *_without_thinking(messages)]):
             yield event  # pass it straight on: the app keeps streaming
             # then peek at the event's type and note down anything you need
             match event["type"]:
@@ -74,6 +84,9 @@ def run_agent(model: str, messages: list[dict]) -> Iterator[dict]:
                 }
                 for call in tool_calls
             ]
+
+        if thinking:
+            message["thinking"] = thinking
 
         messages.append(message)
 

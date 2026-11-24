@@ -7,6 +7,7 @@ ROUND_TRIP = [
     {
         "role": "assistant",
         "content": "",
+        "thinking": "They want the time, so call the tool.",
         "tool_calls": [
             {"id": "call_abc", "function": {"name": "current_time", "arguments": {}}}
         ],
@@ -99,7 +100,7 @@ def test_plain_messages_have_no_optional_keys(path):
     db.add_messages(path, thread, [{"role": "user", "content": "Hi"}])
 
     [message] = db.get_messages(path, thread)
-    assert set(message) == {"role", "content"}  # no tool_calls/tool_name keys at all
+    assert set(message) == {"role", "content"}  # no optional keys at all
 
 
 def test_empty_content_stays_an_empty_string(path):
@@ -116,6 +117,28 @@ def test_tool_calls_come_back_as_a_list_not_a_string(path):
     db.add_messages(path, thread, [ROUND_TRIP[1]])
 
     assert db.get_messages(path, thread)[0]["tool_calls"] == ROUND_TRIP[1]["tool_calls"]
+
+
+def test_thinking_comes_back_with_its_message(path):
+    thread = db.create_thread(path)
+    db.add_messages(
+        path,
+        thread,
+        [{"role": "assistant", "content": "Hi", "thinking": "Be friendly."}],
+    )
+
+    [message] = db.get_messages(path, thread)
+    assert message["thinking"] == "Be friendly."
+
+
+def test_empty_thinking_is_left_out(path):
+    # An empty string is saved as-is, but shouldn't come back as a key.
+    thread = db.create_thread(path)
+    db.add_messages(
+        path, thread, [{"role": "assistant", "content": "Hi", "thinking": ""}]
+    )
+
+    assert "thinking" not in db.get_messages(path, thread)[0]
 
 
 def test_messages_keep_their_order_across_several_saves(path):

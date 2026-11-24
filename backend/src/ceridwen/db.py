@@ -105,9 +105,9 @@ def get_messages(path: Path, thread_id: str) -> list[dict]:
     """Return a thread's messages, oldest first, in Ollama's message format.
 
     Every message has ``role`` and ``content`` (never ``None``). Assistant
-    messages that called tools also have ``tool_calls``, and tool results
-    have ``tool_name``; the keys are left out entirely when they don't apply.
-    Thinking is stored but not returned, since it isn't sent back to the model.
+    messages also have ``thinking`` if the model thought before replying, and
+    ``tool_calls`` if it called tools; tool results have ``tool_name``. These
+    keys are left out entirely when they don't apply.
 
     Returns an empty list for a thread with no messages or an unknown ID.
     """
@@ -116,13 +116,18 @@ def get_messages(path: Path, thread_id: str) -> list[dict]:
         messages = []
         cur = conn.execute(
             """
-        SELECT role, content, tool_calls, tool_name FROM messages WHERE thread_id = ? ORDER BY id
+        SELECT role, content, thinking, tool_calls, tool_name
+        FROM messages
+        WHERE thread_id = ?
+        ORDER BY id
         """,
             (thread_id,),
         )
         rows = cur.fetchall()
         for row in rows:
             message = {"role": row["role"], "content": row["content"] or ""}
+            if row["thinking"]:
+                message["thinking"] = row["thinking"]
             if row["tool_calls"]:
                 message["tool_calls"] = json.loads(row["tool_calls"])
             if row["tool_name"]:

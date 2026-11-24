@@ -82,8 +82,81 @@ def test_plain_answer_passes_events_through_and_stops():
     # the reply is added to the conversation (so it gets saved with the thread)
     assert messages == [
         {"role": "user", "content": "Hi"},
-        {"role": "assistant", "content": "Hello!"},
+        {"role": "assistant", "content": "Hello!", "thinking": "Hmm"},
     ]
+
+
+# --- thinking ---
+
+
+def test_thinking_is_saved_on_the_assistant_message():
+    fake = FakeModel([thinking("Let me "), thinking("see."), text("Hi"), DONE])
+    messages = [{"role": "user", "content": "Hi"}]
+
+    run(fake, messages)
+
+    assert messages[-1] == {
+        "role": "assistant",
+        "content": "Hi",
+        "thinking": "Let me see.",
+    }
+
+
+def test_no_thinking_key_when_the_model_does_not_think():
+    fake = FakeModel([text("Hi"), DONE])
+    messages = [{"role": "user", "content": "Hi"}]
+
+    run(fake, messages)
+
+    assert "thinking" not in messages[-1]
+
+
+def test_thinking_is_kept_per_turn_across_tool_calls():
+    fake = FakeModel(
+        [thinking("Need the time."), tool_call("current_time"), DONE],
+        [text("04:14."), DONE],
+    )
+    messages = [{"role": "user", "content": "Time?"}]
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        run(fake, messages)
+
+    assistants = [m for m in messages if m["role"] == "assistant"]
+    assert assistants[0]["thinking"] == "Need the time."
+    assert "thinking" not in assistants[1]  # second call did not think
+
+
+def test_old_thinking_is_not_sent_back_to_the_model():
+    fake = FakeModel(
+        [thinking("Need the time."), tool_call("current_time"), DONE],
+        [text("04:14."), DONE],
+    )
+    history = [
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "Hello!", "thinking": "Be friendly."},
+        {"role": "user", "content": "Time?"},
+    ]
+
+    with patch("ceridwen.agent.execute_tool", return_value="t"):
+        run(fake, history)
+
+    # neither the stored thinking nor this turn's thinking reaches the model
+    for call in fake.seen:
+        assert all("thinking" not in m for m in call)
+
+
+def test_stripping_thinking_does_not_remove_it_from_the_conversation():
+    # The model gets a cleaned copy; the saved conversation keeps its thinking.
+    fake = FakeModel([text("Sure."), DONE])
+    messages = [
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "Hello!", "thinking": "Be friendly."},
+        {"role": "user", "content": "Again?"},
+    ]
+
+    run(fake, messages)
+
+    assert messages[1]["thinking"] == "Be friendly."
 
 
 # --- one tool round trip ---
